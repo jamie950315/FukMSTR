@@ -1,0 +1,23 @@
+# Research V79 Fixed Flow Route Closure Results
+
+## Decision
+
+- Promote fixed-flow route: `False`
+- Fixed-flow route closed: `True`
+- Failed required gates: `v26_full_public_replay_gate;v68_base_fixed_flow_stability;v70_extended_validation_promoted;v72_execution_contract_and_stricter_checks;v75_design_selected_combined_policy_holdout;v77_bucket_transfer_stability;v78_prequential_bucket_guard_holdout`
+
+## Evidence
+
+gate,version,required,passed,metric,failed_checks,source
+v26_full_public_replay_gate,V26,True,False,total=-84236.9648 bps; win_rate=0.1374,win_rate;total_net_pnl;mean_net_pnl;no_loss_account_return;missed_trade_account_return;extra_cost_account_return;synthetic_loss_return;synthetic_loss_drawdown,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v26_btcusdc_full_public_replay/summary_v26.json
+v68_base_fixed_flow_stability,V68,True,False,total=705.3208 bps; positive_fold_rate=0.5714; worst_fold=-1172.0133,positive_fold_rate;worst_fold_floor;required_extra_cost_positive,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v68_btcusdc_fixed_flow_stability/v68_summary.json
+v69_locked_design_hour_gate,V69,False,True,total=4187.5223 bps; holdout_total=1158.0602,,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v69_btcusdc_fixed_flow_hour_gate/v69_summary.json
+v70_extended_validation_promoted,V70,True,False,month_positive_rate=0.5385; prequential_passed=False,prequential_dynamic_gate_passed;month_positive_rate_ge_0p60,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v70_btcusdc_fixed_flow_extended_validation/v70_summary.json
+v72_execution_contract_and_stricter_checks,V72,True,False,contract_found=True; max_delay=60; extra_cost=16.0; month_positive_rate=0.5385,signal_hour_full_delay120_cost16_passed;entry_hour_contract_delay60_cost16_passed;month_positive_rate_ge_0p60,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v72_btcusdc_fixed_flow_cost_delay_contract/v72_summary.json
+v75_design_selected_combined_policy_holdout,V75,True,False,holdout_positive_delay_rate=0.0984; worst_holdout_delay=-906.0984,holdout_all_delay_totals_positive;worst_holdout_delay_total_positive,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v75_btcusdc_fixed_flow_design_selected_combined_policy/v75_summary.json
+v77_bucket_transfer_stability,V77,True,False,failed_buckets=signal_hour;entry_hour;utc_month;entry_delay_minutes,signal_hour;entry_hour;utc_month;entry_delay_minutes,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v77_btcusdc_fixed_flow_bucket_transfer_stability/v77_summary.json
+v78_prequential_bucket_guard_holdout,V78,True,False,holdout_positive_delay_rate=0.0000; holdout_total=-47398.4130,holdout_all_delay_totals_positive;holdout_worst_delay_positive,/Users/jamie/Downloads/lob_microprice_lab_research_v26_btcusdc_contract_lock/runs/research_v78_btcusdc_fixed_flow_prequential_bucket_guard/v78_summary.json
+
+## Interpretation
+
+V79 is a route-level non-promotion certificate. V69 remains a historical design-only pass, but later execution, holdout, transfer-stability, and prequential guard checks fail. The fixed-flow route should not be promoted as stable or profitable from the current evidence.
