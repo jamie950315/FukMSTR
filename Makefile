@@ -1083,6 +1083,12 @@ btcusdc-v175-long-rescue-state-overlay:
 test-btcusdc-v175:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v175_long_rescue_state_overlay.py
 
+btcusdc-v176-combined-state-overlay:
+	PYTHONPATH=src python scripts/run_btcusdc_v176_combined_state_overlay.py
+
+test-btcusdc-v176:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v176_combined_state_overlay.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
