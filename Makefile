@@ -1005,6 +1005,12 @@ btcusdc-v162-long-trend-follow-boost:
 test-btcusdc-v162:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v162_long_trend_follow_boost.py
 
+btcusdc-v163-post-v162-candidate-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v163_post_v162_candidate_audit.py
+
+test-btcusdc-v163:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v163_post_v162_candidate_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
