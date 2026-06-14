@@ -957,6 +957,12 @@ btcusdc-v154-rescue-funding-stabilizer:
 test-btcusdc-v154:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v154_rescue_funding_stabilizer.py
 
+btcusdc-v155-base-long-premium-expansion:
+	PYTHONPATH=src python scripts/run_btcusdc_v155_base_long_premium_expansion.py
+
+test-btcusdc-v155:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v155_base_long_premium_expansion.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
