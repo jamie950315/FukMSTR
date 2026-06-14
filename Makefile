@@ -891,6 +891,12 @@ btcusdc-v143-market-emotion-trend-audit:
 test-btcusdc-v143:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v143_market_emotion_trend_audit.py
 
+btcusdc-v144-funding-sentiment-governor:
+	PYTHONPATH=src python scripts/run_btcusdc_v144_funding_sentiment_governor.py
+
+test-btcusdc-v144:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v144_funding_sentiment_governor.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
