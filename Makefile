@@ -1059,6 +1059,12 @@ btcusdc-v171-max-drawdown-source-audit:
 test-btcusdc-v171:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v171_max_drawdown_source_audit.py
 
+btcusdc-v172-rescue-cluster-guard:
+	PYTHONPATH=src python scripts/run_btcusdc_v172_rescue_cluster_guard.py
+
+test-btcusdc-v172:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v172_rescue_cluster_guard.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
