@@ -1011,6 +1011,12 @@ btcusdc-v163-post-v162-candidate-audit:
 test-btcusdc-v163:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v163_post_v162_candidate_audit.py
 
+btcusdc-v164-v162-robustness-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v164_v162_robustness_audit.py
+
+test-btcusdc-v164:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v164_v162_robustness_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
