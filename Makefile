@@ -885,6 +885,12 @@ btcusdc-v142-high-confidence-rescue-5x:
 test-btcusdc-v142:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_independent_validation_v27.py::test_btcusdc_v142_config_applies_5x_only_to_high_confidence_rescue tests/test_btcusdc_independent_validation_v27.py::test_btcusdc_v142_high_confidence_5x_is_disabled_after_drawdown_trigger tests/test_btcusdc_independent_validation_v27.py::test_btcusdc_v142_gate_requires_no_v141_drawdown_degradation_and_profit_gain
 
+btcusdc-v143-market-emotion-trend-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v143_market_emotion_trend_audit.py
+
+test-btcusdc-v143:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v143_market_emotion_trend_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
