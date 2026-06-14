@@ -969,6 +969,18 @@ btcusdc-v156-base-long-premium-stepup:
 test-btcusdc-v156:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v156_base_long_premium_stepup.py
 
+btcusdc-v157-market-condition-post-stepup-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v157_market_condition_post_stepup_audit.py
+
+test-btcusdc-v157:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v157_market_condition_post_stepup_audit.py
+
+btcusdc-v158-base-range-position-boost:
+	PYTHONPATH=src python scripts/run_btcusdc_v158_base_range_position_boost.py
+
+test-btcusdc-v158:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v158_base_range_position_boost.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
