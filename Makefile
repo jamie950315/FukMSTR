@@ -1095,6 +1095,12 @@ btcusdc-v177-v176-stability-audit:
 test-btcusdc-v177:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v177_v176_stability_audit.py
 
+btcusdc-v178-diversified-overlay:
+	PYTHONPATH=src python scripts/run_btcusdc_v178_diversified_overlay.py
+
+test-btcusdc-v178:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v178_diversified_overlay.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
