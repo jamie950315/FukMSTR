@@ -915,6 +915,12 @@ btcusdc-v147-fear-greed-regime-risk-overlay:
 test-btcusdc-v147:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v147_fear_greed_regime_risk_overlay.py
 
+btcusdc-v148-premium-basis-sentiment-overlay:
+	PYTHONPATH=src python scripts/run_btcusdc_v148_premium_basis_sentiment_overlay.py
+
+test-btcusdc-v148:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v148_premium_basis_sentiment_overlay.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
