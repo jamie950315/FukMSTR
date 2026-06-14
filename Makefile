@@ -999,6 +999,12 @@ btcusdc-v161-day-sofar-count-boost:
 test-btcusdc-v161:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v161_day_sofar_count_boost.py
 
+btcusdc-v162-long-trend-follow-boost:
+	PYTHONPATH=src python scripts/run_btcusdc_v162_long_trend_follow_boost.py
+
+test-btcusdc-v162:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v162_long_trend_follow_boost.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
