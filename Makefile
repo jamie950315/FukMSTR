@@ -1041,6 +1041,12 @@ btcusdc-v168-execution-readiness-gate:
 test-btcusdc-v168:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v168_execution_readiness_gate.py
 
+btcusdc-v169-fragile-execution-profile:
+	PYTHONPATH=src python scripts/run_btcusdc_v169_fragile_execution_profile.py
+
+test-btcusdc-v169:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v169_fragile_execution_profile.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
