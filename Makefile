@@ -981,6 +981,12 @@ btcusdc-v158-base-range-position-boost:
 test-btcusdc-v158:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v158_base_range_position_boost.py
 
+btcusdc-v159-base-trend-abs-boost:
+	PYTHONPATH=src python scripts/run_btcusdc_v159_base_trend_abs_boost.py
+
+test-btcusdc-v159:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v159_base_trend_abs_boost.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
