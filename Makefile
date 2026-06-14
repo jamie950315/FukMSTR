@@ -1107,6 +1107,12 @@ btcusdc-v179-short-nonspike-overlay:
 test-btcusdc-v179:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v179_short_nonspike_overlay.py
 
+btcusdc-v180-short-base-late-day-throttle:
+	PYTHONPATH=src python scripts/run_btcusdc_v180_short_base_late_day_throttle.py
+
+test-btcusdc-v180:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v180_short_base_late_day_throttle.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
