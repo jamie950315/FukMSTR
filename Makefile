@@ -933,6 +933,12 @@ btcusdc-v150-funding-persistence-overlay:
 test-btcusdc-v150:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v150_funding_persistence_overlay.py
 
+btcusdc-v151-range-alignment-overlay:
+	PYTHONPATH=src python scripts/run_btcusdc_v151_range_alignment_overlay.py
+
+test-btcusdc-v151:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v151_range_alignment_overlay.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
