@@ -945,6 +945,12 @@ btcusdc-v152-short-trend-activity-overlay:
 test-btcusdc-v152:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v152_short_trend_activity_overlay.py
 
+btcusdc-v153-premium-balance-overlay:
+	PYTHONPATH=src python scripts/run_btcusdc_v153_premium_balance_overlay.py
+
+test-btcusdc-v153:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v153_premium_balance_overlay.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
