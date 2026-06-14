@@ -1023,6 +1023,12 @@ btcusdc-v165-cost-fragility-audit:
 test-btcusdc-v165:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v165_cost_fragility_audit.py
 
+btcusdc-v166-execution-budget-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v166_execution_budget_audit.py
+
+test-btcusdc-v166:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v166_execution_budget_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
