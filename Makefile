@@ -1071,6 +1071,12 @@ btcusdc-v173-timestamp-side-exposure-cap:
 test-btcusdc-v173:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v173_timestamp_side_exposure_cap.py
 
+btcusdc-v174-long-rescue-state-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v174_long_rescue_state_audit.py
+
+test-btcusdc-v174:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v174_long_rescue_state_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
