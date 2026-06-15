@@ -521,6 +521,42 @@ def test_csv_signal_provider_accepts_generated_at_as_available_at_alias(tmp_path
     assert ready[0].available_at == pd.Timestamp("2026-01-01T00:02:00Z")
 
 
+def test_paper_runner_summarizes_rejected_signal_reasons(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(price_csv, "timestamp,price\n2026-01-01T00:10:00Z,100\n")
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:10:00Z,wrong-symbol,ETHUSDC,1,base,0.60,30",
+                "2026-01-01T00:10:00Z,bad-side,BTCUSDC,2,base,0.60,30",
+                "2026-01-01T00:00:00Z,old-signal,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    summary_json = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    dashboard = (out_dir / "dashboard.html").read_text(encoding="utf-8")
+    expected = {"invalid_side": 1, "stale_signal": 1, "wrong_symbol": 1}
+    assert summary["rejected_signal_reasons"] == expected
+    assert summary_json["rejected_signal_reasons"] == expected
+    assert "Rejected Signal Reasons" in dashboard
+    assert "invalid_side" in dashboard
+    assert "stale_signal" in dashboard
+    assert "wrong_symbol" in dashboard
+
+
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr("lob_microprice_lab.paper_trading.time.sleep", sleep_calls.append)

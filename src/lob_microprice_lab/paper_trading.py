@@ -485,13 +485,21 @@ class PaperBroker:
         return closed
 
 
-def write_dashboard(*, out_dir: str | Path, config: PaperTradingConfig, events: list[dict[str, object]], trades: list[dict[str, object]]) -> Path:
+def write_dashboard(
+    *,
+    out_dir: str | Path,
+    config: PaperTradingConfig,
+    events: list[dict[str, object]],
+    trades: list[dict[str, object]],
+    rejected_signals: list[dict[str, object]] | None = None,
+) -> Path:
     out = Path(out_dir)
     dashboard = out / "dashboard.html"
     points = [(float(row["equity_usdc"]), str(row["timestamp"])) for row in events]
     svg = _equity_svg(points)
     recent_events = events[-20:]
     recent_trades = trades[-20:]
+    rejected_signal_reasons = _rejected_signal_reason_counts(rejected_signals or [])
     dashboard.write_text(
         "\n".join(
             [
@@ -513,6 +521,8 @@ def write_dashboard(*, out_dir: str | Path, config: PaperTradingConfig, events: 
                 _rows_table(recent_events),
                 "<h2>Recent Trades</h2>",
                 _rows_table(recent_trades),
+                "<h2>Rejected Signal Reasons</h2>",
+                _rows_table([{"reason": key, "count": value} for key, value in rejected_signal_reasons.items()]),
                 "<p class='muted'>This is paper trading only. No live orders are placed.</p>",
                 "</body></html>",
             ]
@@ -565,7 +575,13 @@ def run_v142_paper_trading(
                 event_sink.write(json.dumps(event, default=str) + "\n")
                 event_sink.flush()
                 _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
-                dashboard = write_dashboard(out_dir=out, config=config, events=broker.events, trades=broker.trades)
+                dashboard = write_dashboard(
+                    out_dir=out,
+                    config=config,
+                    events=broker.events,
+                    trades=broker.trades,
+                    rejected_signals=broker.rejected_signals,
+                )
                 count += 1
                 if _should_sleep(sleep=sleep, interval_sec=interval_sec, ticks=ticks, count=count):
                     time.sleep(float(interval_sec))
@@ -585,7 +601,13 @@ def run_v142_paper_trading(
                 broker.rejected_signals[rejected_start:],
                 REJECTED_SIGNAL_FIELDNAMES,
             )
-            dashboard = write_dashboard(out_dir=out, config=config, events=broker.events, trades=broker.trades)
+            dashboard = write_dashboard(
+                out_dir=out,
+                config=config,
+                events=broker.events,
+                trades=broker.trades,
+                rejected_signals=broker.rejected_signals,
+            )
             count += 1
             if _should_sleep(sleep=sleep, interval_sec=interval_sec, ticks=ticks, count=count):
                 time.sleep(float(interval_sec))
@@ -606,6 +628,7 @@ def run_v142_paper_trading(
         "events": len(broker.events),
         "trades": len(broker.trades),
         "rejected_signals": len(broker.rejected_signals),
+        "rejected_signal_reasons": _rejected_signal_reason_counts(broker.rejected_signals),
         "open_positions": len(broker.open_positions),
         "final_balance_usdc": broker.balance_usdc,
         "final_equity_usdc": broker.equity_usdc(last_snapshot),
@@ -640,6 +663,16 @@ def _error_event(*, config: PaperTradingConfig, broker: PaperBroker, error: Exce
 
 def _should_sleep(*, sleep: bool, interval_sec: float, ticks: int, count: int) -> bool:
     return bool(sleep and interval_sec > 0 and (not ticks or count < int(ticks)))
+
+
+def _rejected_signal_reason_counts(rejected_signals: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rejected_signals:
+        reason = str(row.get("reason", "")).strip()
+        if not reason:
+            continue
+        counts[reason] = counts.get(reason, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
 
 
 def _append_csv_rows(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
