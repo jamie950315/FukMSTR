@@ -1143,6 +1143,12 @@ btcusdc-v185-long-base-confidence-stepup:
 test-btcusdc-v185:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v185_long_base_confidence_stepup.py
 
+btcusdc-v186-long-rescue-day-sofar-stepup:
+	PYTHONPATH=src python scripts/run_btcusdc_v186_long_rescue_day_sofar_stepup.py
+
+test-btcusdc-v186:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v186_long_rescue_day_sofar_stepup.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
