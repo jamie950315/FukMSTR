@@ -1155,6 +1155,12 @@ btcusdc-v187-drought-long-base-trend-stepup:
 test-btcusdc-v187:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v187_drought_long_base_trend_stepup.py
 
+btcusdc-v188-drought-trend-emotion-stepup:
+	PYTHONPATH=src python scripts/run_btcusdc_v188_drought_trend_emotion_stepup.py
+
+test-btcusdc-v188:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v188_drought_trend_emotion_stepup.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
