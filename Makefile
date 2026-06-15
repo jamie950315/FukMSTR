@@ -1197,6 +1197,12 @@ btcusdc-v194-long-rescue-premium-discount-stepup:
 test-btcusdc-v194:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v194_long_rescue_premium_discount_stepup.py
 
+btcusdc-v195-post-goal-overfitting-audit:
+	PYTHONPATH=src python scripts/run_btcusdc_v195_post_goal_overfitting_audit.py
+
+test-btcusdc-v195:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v195_post_goal_overfitting_audit.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
