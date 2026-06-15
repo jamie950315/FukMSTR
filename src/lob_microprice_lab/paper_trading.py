@@ -28,7 +28,7 @@ class PaperSignal:
     timestamp: pd.Timestamp
     signal_id: str
     symbol: str
-    side: int
+    side: int | float
     source: str
     leg: str
     direction_probability: float | None = None
@@ -218,7 +218,7 @@ class CsvSignalProvider:
             raise ValueError("signal CSV must contain side or signal column")
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
         side_col = "side" if "side" in frame.columns else "signal"
-        frame["side"] = pd.to_numeric(frame[side_col], errors="coerce").fillna(0).astype(int).clip(-1, 1)
+        frame["side"] = pd.to_numeric(frame[side_col], errors="coerce").fillna(0)
         frame["symbol"] = frame.get("symbol", default_symbol)
         frame["source"] = frame.get("source", "manual")
         frame["leg"] = frame.get("leg", "base")
@@ -226,7 +226,7 @@ class CsvSignalProvider:
         frame["horizon_minutes"] = pd.to_numeric(frame.get("horizon_minutes", default_horizon_minutes), errors="coerce").fillna(default_horizon_minutes).astype(int)
         if "signal_id" not in frame.columns:
             frame["signal_id"] = [f"csv-{i}" for i in range(len(frame))]
-        self.frame = frame.loc[frame["side"] != 0].sort_values("timestamp").reset_index(drop=True)
+        self.frame = frame.sort_values("timestamp").reset_index(drop=True)
         self.emitted: set[str] = set()
 
     def signals_for_snapshot(self, snapshot: MarketSnapshot) -> list[PaperSignal]:
@@ -236,8 +236,6 @@ class CsvSignalProvider:
             signal_id = str(row["signal_id"])
             if signal_id in self.emitted:
                 continue
-            if str(row["symbol"]).upper() != snapshot.symbol.upper():
-                continue
             self.emitted.add(signal_id)
             prob = row["direction_probability"]
             out.append(
@@ -245,7 +243,7 @@ class CsvSignalProvider:
                     timestamp=pd.to_datetime(row["timestamp"], utc=True),
                     signal_id=signal_id,
                     symbol=str(row["symbol"]).upper(),
-                    side=int(row["side"]),
+                    side=float(row["side"]),
                     source=str(row["source"]),
                     leg=str(row["leg"]),
                     direction_probability=None if pd.isna(prob) else float(prob),
@@ -336,14 +334,14 @@ class PaperBroker:
 
     def _admitted_signals(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> tuple[list[PaperSignal], list[dict[str, object]]]:
         if self.config.strategy_mode != "realtime_safe":
-            return signals, []
+            return [signal for signal in signals if self._matches_snapshot_symbol(signal, snapshot) and self._has_valid_side(signal)], []
         admitted: list[PaperSignal] = []
         rejected: list[dict[str, object]] = []
         for signal in signals:
-            if str(signal.symbol).upper() != snapshot.symbol.upper():
+            if not self._matches_snapshot_symbol(signal, snapshot):
                 rejected.append(self._rejected_signal_row(snapshot, signal, reason="wrong_symbol"))
                 continue
-            if int(signal.side) not in {-1, 1}:
+            if not self._has_valid_side(signal):
                 rejected.append(self._rejected_signal_row(snapshot, signal, reason="invalid_side"))
                 continue
             signal_ts = pd.Timestamp(signal.timestamp)
@@ -360,6 +358,13 @@ class PaperBroker:
                 continue
             admitted.append(signal)
         return admitted, rejected
+
+    def _matches_snapshot_symbol(self, signal: PaperSignal, snapshot: MarketSnapshot) -> bool:
+        return str(signal.symbol).upper() == snapshot.symbol.upper()
+
+    def _has_valid_side(self, signal: PaperSignal) -> bool:
+        side = float(signal.side)
+        return math.isfinite(side) and side in {-1.0, 1.0}
 
     def _rejected_signal_row(self, snapshot: MarketSnapshot, signal: PaperSignal, *, reason: str) -> dict[str, object]:
         return {
@@ -388,7 +393,7 @@ class PaperBroker:
         position = PaperPosition(
             signal_id=signal.signal_id,
             symbol=signal.symbol,
-            side=signal.side,
+            side=int(signal.side),
             source=signal.source,
             leg=signal.leg,
             direction_probability=signal.direction_probability,
@@ -405,7 +410,7 @@ class PaperBroker:
             "event_type": "open",
             "signal_id": signal.signal_id,
             "symbol": signal.symbol,
-            "side": signal.side,
+            "side": int(signal.side),
             "source": signal.source,
             "leg": signal.leg,
             "direction_probability": signal.direction_probability,

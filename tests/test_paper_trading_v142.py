@@ -311,6 +311,41 @@ def test_research_mode_keeps_historical_stale_signal_replay() -> None:
     assert len(broker.open_positions) == 1
 
 
+def test_research_mode_does_not_open_invalid_or_wrong_symbol_csv_signals(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(price_csv, "timestamp,price\n2026-01-01T00:10:00Z,100\n")
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,wrong-symbol,ETHUSDC,1,base,0.60,30",
+                "2026-01-01T00:00:00Z,zero-side,BTCUSDC,0,base,0.60,30",
+                "2026-01-01T00:00:00Z,bad-side,BTCUSDC,2,base,0.60,30",
+                "2026-01-01T00:00:00Z,valid-stale,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        config=PaperTradingConfig(strategy_mode="research_v142"),
+        clean=True,
+        sleep=False,
+    )
+
+    trades = pd.read_csv(out_dir / "trades.csv")
+    rejected = pd.read_csv(out_dir / "rejected_signals.csv")
+    assert summary["trades"] == 1
+    assert trades.loc[0, "signal_id"] == "valid-stale"
+    assert summary["rejected_signals"] == 0
+    assert rejected.empty
+
+
 def test_paper_runner_writes_rejected_signal_reason_log(tmp_path: Path) -> None:
     price_csv = tmp_path / "prices.csv"
     signal_csv = tmp_path / "signals.csv"
@@ -339,6 +374,46 @@ def test_paper_runner_writes_rejected_signal_reason_log(tmp_path: Path) -> None:
     assert rejected.loc[0, "signal_id"] == "old1"
     assert rejected.loc[0, "reason"] == "stale_signal"
     assert rejected.loc[0, "snapshot_symbol"] == "BTCUSDC"
+
+
+def test_csv_signal_provider_exposes_invalid_rows_for_realtime_rejection_log(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(price_csv, "timestamp,price\n2026-01-01T00:00:00Z,100\n")
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,wrong-symbol,ETHUSDC,1,base,0.60,30",
+                "2026-01-01T00:00:00Z,zero-side,BTCUSDC,0,base,0.60,30",
+                "2026-01-01T00:00:00Z,bad-side,BTCUSDC,2,base,0.60,30",
+                "2026-01-01T00:00:00Z,decimal-side,BTCUSDC,1.5,base,0.60,30",
+                "2026-01-01T00:00:00Z,valid,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    rejected = pd.read_csv(out_dir / "rejected_signals.csv")
+    trades = pd.read_csv(out_dir / "trades.csv")
+    assert summary["trades"] == 1
+    assert trades.loc[0, "signal_id"] == "valid"
+    assert summary["rejected_signals"] == 4
+    assert rejected[["signal_id", "reason"]].to_dict("records") == [
+        {"signal_id": "wrong-symbol", "reason": "wrong_symbol"},
+        {"signal_id": "zero-side", "reason": "invalid_side"},
+        {"signal_id": "bad-side", "reason": "invalid_side"},
+        {"signal_id": "decimal-side", "reason": "invalid_side"},
+    ]
 
 
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:
