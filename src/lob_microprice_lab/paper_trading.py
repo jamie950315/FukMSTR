@@ -319,6 +319,10 @@ class PaperBroker:
         return sum(position.notional_usdc for position in self.open_positions)
 
     def on_snapshot(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> dict[str, object]:
+        if not _is_valid_market_price(snapshot.price):
+            event = _market_data_error_event(config=self.config, broker=self, snapshot=snapshot)
+            self.events.append(event)
+            return event
         closed = self._close_due_positions(snapshot)
         admitted, rejected = self._admitted_signals(snapshot, signals)
         self.rejected_signals.extend(rejected)
@@ -588,6 +592,23 @@ def run_v142_paper_trading(
                 continue
             if snapshot is None:
                 break
+            if not _is_valid_market_price(snapshot.price):
+                event = _market_data_error_event(config=config, broker=broker, snapshot=snapshot)
+                broker.events.append(event)
+                event_sink.write(json.dumps(event, default=str) + "\n")
+                event_sink.flush()
+                _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
+                dashboard = write_dashboard(
+                    out_dir=out,
+                    config=config,
+                    events=broker.events,
+                    trades=broker.trades,
+                    rejected_signals=broker.rejected_signals,
+                )
+                count += 1
+                if _should_sleep(sleep=sleep, interval_sec=interval_sec, ticks=ticks, count=count):
+                    time.sleep(float(interval_sec))
+                continue
             signals = signal_provider.signals_for_snapshot(snapshot)
             trade_start = len(broker.trades)
             rejected_start = len(broker.rejected_signals)
@@ -613,7 +634,7 @@ def run_v142_paper_trading(
                 time.sleep(float(interval_sec))
 
     last_snapshot = None
-    last_market_event = next((row for row in reversed(broker.events) if row.get("price") is not None), None)
+    last_market_event = next((row for row in reversed(broker.events) if row.get("event_type") == "snapshot" and row.get("price") is not None), None)
     if last_market_event is not None:
         last_event = last_market_event
         last_snapshot = MarketSnapshot(
@@ -629,6 +650,7 @@ def run_v142_paper_trading(
         "trades": len(broker.trades),
         "rejected_signals": len(broker.rejected_signals),
         "rejected_signal_reasons": _rejected_signal_reason_counts(broker.rejected_signals),
+        "market_data_errors": _market_data_error_count(broker.events),
         "open_positions": len(broker.open_positions),
         "final_balance_usdc": broker.balance_usdc,
         "final_equity_usdc": broker.equity_usdc(last_snapshot),
@@ -661,8 +683,38 @@ def _error_event(*, config: PaperTradingConfig, broker: PaperBroker, error: Exce
     }
 
 
+def _market_data_error_event(*, config: PaperTradingConfig, broker: PaperBroker, snapshot: MarketSnapshot) -> dict[str, object]:
+    return {
+        "timestamp": snapshot.timestamp.isoformat(),
+        "event_type": "market_data_error",
+        "symbol": snapshot.symbol or config.symbol,
+        "price": snapshot.price,
+        "balance_usdc": broker.balance_usdc,
+        "equity_usdc": broker.equity_usdc(),
+        "drawdown_pct": broker.drawdown_pct(),
+        "open_positions": len(broker.open_positions),
+        "opened": 0,
+        "closed": 0,
+        "rejected_signal_count": 0,
+        "source": snapshot.source,
+        "error": f"invalid market price: {snapshot.price}",
+    }
+
+
 def _should_sleep(*, sleep: bool, interval_sec: float, ticks: int, count: int) -> bool:
     return bool(sleep and interval_sec > 0 and (not ticks or count < int(ticks)))
+
+
+def _is_valid_market_price(price: object) -> bool:
+    try:
+        value = float(price)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(value) and value > 0.0
+
+
+def _market_data_error_count(events: list[dict[str, object]]) -> int:
+    return sum(1 for row in events if row.get("event_type") == "market_data_error")
 
 
 def _rejected_signal_reason_counts(rejected_signals: list[dict[str, object]]) -> dict[str, int]:

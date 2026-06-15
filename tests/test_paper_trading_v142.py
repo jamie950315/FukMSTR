@@ -234,6 +234,113 @@ def test_paper_broker_caps_total_open_notional_to_policy_leverage() -> None:
     assert sum(position.notional_usdc for position in broker.open_positions) == 35_000.0
 
 
+def test_paper_broker_rejects_invalid_market_price_without_opening_position() -> None:
+    broker = PaperBroker(PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0))
+    snapshot = MarketSnapshot(
+        timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+        symbol="BTCUSDC",
+        price=0.0,
+        source="test",
+    )
+    signal = PaperSignal(
+        timestamp=snapshot.timestamp,
+        signal_id="s1",
+        symbol="BTCUSDC",
+        side=1,
+        source="test",
+        leg="base",
+    )
+
+    event = broker.on_snapshot(snapshot, [signal])
+
+    assert event["event_type"] == "market_data_error"
+    assert event["opened"] == 0
+    assert event["closed"] == 0
+    assert event["open_positions"] == 0
+    assert event["error"] == "invalid market price: 0.0"
+    assert broker.open_positions == []
+    assert broker.trades == []
+
+
+def test_paper_runner_logs_invalid_market_prices_without_consuming_signals(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(
+        price_csv,
+        "\n".join(
+            [
+                "timestamp,price",
+                "2026-01-01T00:00:00Z,0",
+                "2026-01-01T00:01:00Z,100",
+            ]
+        ),
+    )
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,valid-after-bad-price,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    events = pd.read_csv(out_dir / "balance.csv")
+    trades = pd.read_csv(out_dir / "trades.csv")
+    assert summary["market_data_errors"] == 1
+    assert events.loc[0, "event_type"] == "market_data_error"
+    assert events.loc[0, "error"] == "invalid market price: 0.0"
+    assert events.loc[1, "opened"] == 1
+    assert trades.loc[0, "signal_id"] == "valid-after-bad-price"
+
+
+def test_paper_runner_does_not_use_invalid_market_price_for_final_equity(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(
+        price_csv,
+        "\n".join(
+            [
+                "timestamp,price",
+                "2026-01-01T00:00:00Z,100",
+                "2026-01-01T00:30:00Z,0",
+            ]
+        ),
+    )
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,open-before-bad-price,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    assert summary["market_data_errors"] == 1
+    assert summary["open_positions"] == 1
+    assert summary["trades"] == 1
+    assert summary["final_equity_usdc"] == pytest.approx(9996.0)
+
+
 def test_cli_paper_trade_defaults_to_realtime_safe_strategy(tmp_path: Path) -> None:
     from lob_microprice_lab.cli import main
 
