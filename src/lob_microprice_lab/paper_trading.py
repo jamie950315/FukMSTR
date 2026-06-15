@@ -113,6 +113,19 @@ TRADE_FIELDNAMES = [
     "drawdown_pct",
 ]
 
+REJECTED_SIGNAL_FIELDNAMES = [
+    "timestamp",
+    "signal_id",
+    "symbol",
+    "snapshot_symbol",
+    "signal_timestamp",
+    "side",
+    "source",
+    "leg",
+    "reason",
+    "max_realtime_signal_age_minutes",
+]
+
 
 class MarketDataSource(Protocol):
     def next_snapshot(self) -> MarketSnapshot | None:
@@ -271,6 +284,7 @@ class PaperBroker:
         self.open_positions: list[PaperPosition] = []
         self.trades: list[dict[str, object]] = []
         self.events: list[dict[str, object]] = []
+        self.rejected_signals: list[dict[str, object]] = []
         self.leverage_policy = V142LeveragePolicy(config)
 
     def equity_usdc(self, snapshot: MarketSnapshot | None = None) -> float:
@@ -296,7 +310,8 @@ class PaperBroker:
 
     def on_snapshot(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> dict[str, object]:
         closed = self._close_due_positions(snapshot)
-        admitted, rejected_signal_count = self._admitted_signals(snapshot, signals)
+        admitted, rejected = self._admitted_signals(snapshot, signals)
+        self.rejected_signals.extend(rejected)
         opened = [self._open_position(snapshot, signal) for signal in admitted]
         equity = self.equity_usdc(snapshot)
         if equity > self.peak_equity_usdc:
@@ -313,20 +328,23 @@ class PaperBroker:
             "open_positions": len(self.open_positions),
             "opened": len([row for row in opened if row is not None]),
             "closed": len(closed),
-            "rejected_signal_count": rejected_signal_count,
+            "rejected_signal_count": len(rejected),
             "source": snapshot.source,
         }
         self.events.append(event)
         return event
 
-    def _admitted_signals(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> tuple[list[PaperSignal], int]:
+    def _admitted_signals(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> tuple[list[PaperSignal], list[dict[str, object]]]:
         if self.config.strategy_mode != "realtime_safe":
-            return signals, 0
+            return signals, []
         admitted: list[PaperSignal] = []
-        rejected = 0
+        rejected: list[dict[str, object]] = []
         for signal in signals:
-            if str(signal.symbol).upper() != snapshot.symbol.upper() or int(signal.side) not in {-1, 1}:
-                rejected += 1
+            if str(signal.symbol).upper() != snapshot.symbol.upper():
+                rejected.append(self._rejected_signal_row(snapshot, signal, reason="wrong_symbol"))
+                continue
+            if int(signal.side) not in {-1, 1}:
+                rejected.append(self._rejected_signal_row(snapshot, signal, reason="invalid_side"))
                 continue
             signal_ts = pd.Timestamp(signal.timestamp)
             signal_ts = signal_ts.tz_localize("UTC") if signal_ts.tzinfo is None else signal_ts.tz_convert("UTC")
@@ -334,11 +352,28 @@ class PaperBroker:
             snapshot_ts = snapshot_ts.tz_localize("UTC") if snapshot_ts.tzinfo is None else snapshot_ts.tz_convert("UTC")
             age = snapshot_ts - signal_ts
             max_age = pd.Timedelta(minutes=float(self.config.max_realtime_signal_age_minutes))
-            if age < pd.Timedelta(0) or age > max_age:
-                rejected += 1
+            if age < pd.Timedelta(0):
+                rejected.append(self._rejected_signal_row(snapshot, signal, reason="future_signal"))
+                continue
+            if age > max_age:
+                rejected.append(self._rejected_signal_row(snapshot, signal, reason="stale_signal"))
                 continue
             admitted.append(signal)
         return admitted, rejected
+
+    def _rejected_signal_row(self, snapshot: MarketSnapshot, signal: PaperSignal, *, reason: str) -> dict[str, object]:
+        return {
+            "timestamp": snapshot.timestamp.isoformat(),
+            "signal_id": signal.signal_id,
+            "symbol": signal.symbol,
+            "snapshot_symbol": snapshot.symbol,
+            "signal_timestamp": signal.timestamp.isoformat(),
+            "side": signal.side,
+            "source": signal.source,
+            "leg": signal.leg,
+            "reason": reason,
+            "max_realtime_signal_age_minutes": self.config.max_realtime_signal_age_minutes,
+        }
 
     def _open_position(self, snapshot: MarketSnapshot, signal: PaperSignal) -> dict[str, object] | None:
         prior_drawdown = self.drawdown_pct(snapshot)
@@ -488,12 +523,14 @@ def run_v142_paper_trading(
     events_path = out / "paper_events.jsonl"
     balance_path = out / "balance.csv"
     trades_path = out / "trades.csv"
+    rejected_signals_path = out / "rejected_signals.csv"
     config_path = out / "paper_config.json"
     config_path.write_text(json.dumps(asdict(config), indent=2), encoding="utf-8")
-    for path in (events_path, balance_path, trades_path):
+    for path in (events_path, balance_path, trades_path, rejected_signals_path):
         path.unlink(missing_ok=True)
     _ensure_csv_header(balance_path, EVENT_FIELDNAMES)
     _ensure_csv_header(trades_path, TRADE_FIELDNAMES)
+    _ensure_csv_header(rejected_signals_path, REJECTED_SIGNAL_FIELDNAMES)
 
     count = 0
     with events_path.open("w", encoding="utf-8") as event_sink:
@@ -517,11 +554,17 @@ def run_v142_paper_trading(
                 break
             signals = signal_provider.signals_for_snapshot(snapshot)
             trade_start = len(broker.trades)
+            rejected_start = len(broker.rejected_signals)
             event = broker.on_snapshot(snapshot, signals)
             event_sink.write(json.dumps(event, default=str) + "\n")
             event_sink.flush()
             _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
             _append_csv_rows(trades_path, broker.trades[trade_start:], TRADE_FIELDNAMES)
+            _append_csv_rows(
+                rejected_signals_path,
+                broker.rejected_signals[rejected_start:],
+                REJECTED_SIGNAL_FIELDNAMES,
+            )
             dashboard = write_dashboard(out_dir=out, config=config, events=broker.events, trades=broker.trades)
             count += 1
             if _should_sleep(sleep=sleep, interval_sec=interval_sec, ticks=ticks, count=count):
@@ -542,6 +585,7 @@ def run_v142_paper_trading(
         "out_dir": str(out),
         "events": len(broker.events),
         "trades": len(broker.trades),
+        "rejected_signals": len(broker.rejected_signals),
         "open_positions": len(broker.open_positions),
         "final_balance_usdc": broker.balance_usdc,
         "final_equity_usdc": broker.equity_usdc(last_snapshot),
@@ -549,6 +593,7 @@ def run_v142_paper_trading(
         "events_jsonl": str(events_path),
         "balance_csv": str(balance_path),
         "trades_csv": str(trades_path),
+        "rejected_signals_csv": str(rejected_signals_path),
         "config_json": str(config_path),
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")

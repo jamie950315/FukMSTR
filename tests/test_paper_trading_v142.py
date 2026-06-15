@@ -282,6 +282,7 @@ def test_realtime_safe_rejects_stale_signal_without_opening_position() -> None:
     assert event["opened"] == 0
     assert event["rejected_signal_count"] == 1
     assert broker.open_positions == []
+    assert broker.rejected_signals[0]["reason"] == "stale_signal"
 
 
 def test_research_mode_keeps_historical_stale_signal_replay() -> None:
@@ -308,6 +309,36 @@ def test_research_mode_keeps_historical_stale_signal_replay() -> None:
     assert event["opened"] == 1
     assert event["rejected_signal_count"] == 0
     assert len(broker.open_positions) == 1
+
+
+def test_paper_runner_writes_rejected_signal_reason_log(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(price_csv, "timestamp,price\n2026-01-01T00:10:00Z,100\n")
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,signal_id,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,old1,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    rejected = pd.read_csv(out_dir / "rejected_signals.csv")
+    assert summary["rejected_signals"] == 1
+    assert rejected.loc[0, "signal_id"] == "old1"
+    assert rejected.loc[0, "reason"] == "stale_signal"
+    assert rejected.loc[0, "snapshot_symbol"] == "BTCUSDC"
 
 
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:
