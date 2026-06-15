@@ -65,6 +65,28 @@ def test_paper_trade_v142_cli_runs_synthetic_demo(tmp_path: Path) -> None:
     assert (out_dir / "trades.csv").exists()
 
 
+def test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready(tmp_path: Path) -> None:
+    from lob_microprice_lab.cli import main
+
+    out_dir = tmp_path / "real-money"
+
+    rc = main(
+        [
+            "real-trade-btcusdc",
+            "--out",
+            str(out_dir),
+            "--arm-real-money-token",
+            "I_UNDERSTAND_THIS_USES_REAL_MONEY",
+        ]
+    )
+
+    assert rc == 2
+    summary = json.loads((out_dir / "real_money_launch_preflight_summary.json").read_text(encoding="utf-8"))
+    assert summary["decision"]["allow_real_money_launch"] is False
+    assert "readiness_gate_passed" in summary["decision"]["failed_checks"]
+    assert summary["config"]["places_live_orders"] is False
+
+
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
     policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(

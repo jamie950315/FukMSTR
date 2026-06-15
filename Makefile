@@ -1251,6 +1251,12 @@ btcusdc-v206-real-money-launch-preflight:
 test-btcusdc-v206:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v206_real_money_launch_preflight.py
 
+btcusdc-v207-real-trade-cli-preflight:
+	PYTHONPATH=src python -m lob_microprice_lab.cli real-trade-btcusdc --out runs/research_v207_real_trade_cli_preflight --arm-real-money-token I_UNDERSTAND_THIS_USES_REAL_MONEY; rc=$$?; test $$rc -eq 0 -o $$rc -eq 2
+
+test-btcusdc-v207:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py::test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

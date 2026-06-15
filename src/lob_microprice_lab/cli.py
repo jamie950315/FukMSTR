@@ -25,6 +25,7 @@ from .exit_lock import ExitLockSpec
 from .profit_execution_lock import ExecutionProfitLockGate, run_execution_profit_lock_certificate
 from .deployment_lock import DeploymentLockGate, run_deployment_lock_certificate
 from .real_fee_lock import FeeGuardFilterSpec, RealFeeLockGate, RealFeeSpec, run_real_fee_lock_certificate
+from .real_money_launch import real_money_launch_preflight
 from .btc_leverage_lock import BTCLeverageGate, run_btc_contract_leverage_lock
 from .btc_profit_target_lock import BTCProfitTargetGate, run_btc_profit_target_lock
 from .btc_rescue_profit_lock import BTCRescueProfitGate, run_btc_rescue_profit_lock
@@ -927,6 +928,10 @@ def build_parser() -> argparse.ArgumentParser:
     paper.add_argument("--clean", action="store_true")
     paper.add_argument("--no-sleep", action="store_true")
 
+    real_trade = sub.add_parser("real-trade-btcusdc", help="Run the BTCUSDC real-money launch preflight without placing orders.")
+    real_trade.add_argument("--out", required=True)
+    real_trade.add_argument("--arm-real-money-token", default="")
+
     replay = sub.add_parser("trade-replay-v142", help="Build an interactive V142 historical trading replay page.")
     replay.add_argument(
         "--account-path",
@@ -996,6 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2))
         return 0
+
+    if args.command == "real-trade-btcusdc":
+        result = real_money_launch_preflight(
+            out_dir=args.out,
+            arm_token=args.arm_real_money_token,
+        )
+        print(json.dumps(result, indent=2))
+        return 0 if result["decision"]["allow_real_money_launch"] else 2
 
     if args.command == "build-kline-cache":
         book = read_csv(args.book)
