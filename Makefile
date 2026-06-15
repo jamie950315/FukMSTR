@@ -1233,6 +1233,18 @@ test-btcusdc-v202:
 test-btcusdc-v203:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py
 
+btcusdc-v204-real-money-readiness-gate:
+	PYTHONPATH=src python scripts/run_btcusdc_v204_real_money_readiness_gate.py
+
+test-btcusdc-v204:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v204_real_money_readiness_gate.py
+
+btcusdc-v205-execution-validation:
+	PYTHONPATH=src python scripts/run_btcusdc_v205_execution_validation.py
+
+test-btcusdc-v205:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v205_execution_validation.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
