@@ -260,6 +260,56 @@ def test_cli_paper_trade_defaults_to_realtime_safe_strategy(tmp_path: Path) -> N
     assert config["strategy_mode"] == "realtime_safe"
 
 
+def test_realtime_safe_rejects_stale_signal_without_opening_position() -> None:
+    broker = PaperBroker(PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0))
+    snapshot = MarketSnapshot(
+        timestamp=pd.Timestamp("2026-01-01T00:10:00Z"),
+        symbol="BTCUSDC",
+        price=100.0,
+        source="test",
+    )
+    stale_signal = PaperSignal(
+        timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+        signal_id="stale",
+        symbol="BTCUSDC",
+        side=1,
+        source="test",
+        leg="base",
+    )
+
+    event = broker.on_snapshot(snapshot, [stale_signal])
+
+    assert event["opened"] == 0
+    assert event["rejected_signal_count"] == 1
+    assert broker.open_positions == []
+
+
+def test_research_mode_keeps_historical_stale_signal_replay() -> None:
+    broker = PaperBroker(
+        PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0, strategy_mode="research_v142")
+    )
+    snapshot = MarketSnapshot(
+        timestamp=pd.Timestamp("2026-01-01T00:10:00Z"),
+        symbol="BTCUSDC",
+        price=100.0,
+        source="test",
+    )
+    historical_signal = PaperSignal(
+        timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+        signal_id="historical",
+        symbol="BTCUSDC",
+        side=1,
+        source="test",
+        leg="base",
+    )
+
+    event = broker.on_snapshot(snapshot, [historical_signal])
+
+    assert event["opened"] == 1
+    assert event["rejected_signal_count"] == 0
+    assert len(broker.open_positions) == 1
+
+
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr("lob_microprice_lab.paper_trading.time.sleep", sleep_calls.append)

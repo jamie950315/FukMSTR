@@ -58,6 +58,7 @@ class PaperTradingConfig:
     initial_balance_usdc: float = 10_000.0
     fee_bps_per_side: float = 4.0
     realtime_safe_leverage: float = 1.0
+    max_realtime_signal_age_minutes: float = 5.0
     high_confidence_probability_floor: float = 0.66
     high_confidence_rescue_leverage: float = 5.0
     high_account_leverage: float = 3.5
@@ -83,6 +84,7 @@ EVENT_FIELDNAMES = [
     "open_positions",
     "opened",
     "closed",
+    "rejected_signal_count",
     "source",
     "error",
 ]
@@ -294,7 +296,8 @@ class PaperBroker:
 
     def on_snapshot(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> dict[str, object]:
         closed = self._close_due_positions(snapshot)
-        opened = [self._open_position(snapshot, signal) for signal in signals]
+        admitted, rejected_signal_count = self._admitted_signals(snapshot, signals)
+        opened = [self._open_position(snapshot, signal) for signal in admitted]
         equity = self.equity_usdc(snapshot)
         if equity > self.peak_equity_usdc:
             self.peak_equity_usdc = equity
@@ -310,10 +313,32 @@ class PaperBroker:
             "open_positions": len(self.open_positions),
             "opened": len([row for row in opened if row is not None]),
             "closed": len(closed),
+            "rejected_signal_count": rejected_signal_count,
             "source": snapshot.source,
         }
         self.events.append(event)
         return event
+
+    def _admitted_signals(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> tuple[list[PaperSignal], int]:
+        if self.config.strategy_mode != "realtime_safe":
+            return signals, 0
+        admitted: list[PaperSignal] = []
+        rejected = 0
+        for signal in signals:
+            if str(signal.symbol).upper() != snapshot.symbol.upper() or int(signal.side) not in {-1, 1}:
+                rejected += 1
+                continue
+            signal_ts = pd.Timestamp(signal.timestamp)
+            signal_ts = signal_ts.tz_localize("UTC") if signal_ts.tzinfo is None else signal_ts.tz_convert("UTC")
+            snapshot_ts = pd.Timestamp(snapshot.timestamp)
+            snapshot_ts = snapshot_ts.tz_localize("UTC") if snapshot_ts.tzinfo is None else snapshot_ts.tz_convert("UTC")
+            age = snapshot_ts - signal_ts
+            max_age = pd.Timedelta(minutes=float(self.config.max_realtime_signal_age_minutes))
+            if age < pd.Timedelta(0) or age > max_age:
+                rejected += 1
+                continue
+            admitted.append(signal)
+        return admitted, rejected
 
     def _open_position(self, snapshot: MarketSnapshot, signal: PaperSignal) -> dict[str, object] | None:
         prior_drawdown = self.drawdown_pct(snapshot)
@@ -542,6 +567,7 @@ def _error_event(*, config: PaperTradingConfig, broker: PaperBroker, error: Exce
         "open_positions": len(broker.open_positions),
         "opened": 0,
         "closed": 0,
+        "rejected_signal_count": 0,
         "source": "market_source",
         "error": f"{type(error).__name__}: {error}",
     }
