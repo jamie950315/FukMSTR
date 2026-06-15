@@ -1203,6 +1203,18 @@ btcusdc-v195-post-goal-overfitting-audit:
 test-btcusdc-v195:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v195_post_goal_overfitting_audit.py
 
+btcusdc-v196-forward-monitoring-gate:
+	PYTHONPATH=src python scripts/run_btcusdc_v196_forward_monitoring_gate.py
+
+test-btcusdc-v196:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v196_forward_monitoring_gate.py
+
+paper-trade-v142-realtime-safe-smoke:
+	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_realtime_safe_smoke --source synthetic --ticks 3 --interval-sec 60 --clean --no-sleep
+
+test-btcusdc-v197:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py tests/test_btcusdc_v195_post_goal_overfitting_audit.py tests/test_btcusdc_v196_forward_monitoring_gate.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

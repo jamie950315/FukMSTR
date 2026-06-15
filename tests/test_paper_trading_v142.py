@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from lob_microprice_lab.paper_trading import (
     BinancePublicTickerSource,
@@ -65,7 +66,7 @@ def test_paper_trade_v142_cli_runs_synthetic_demo(tmp_path: Path) -> None:
 
 
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
-    policy = V142LeveragePolicy(PaperTradingConfig())
+    policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(
         timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
         signal_id="s1",
@@ -82,8 +83,26 @@ def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> Non
     assert high_confidence is True
 
 
-def test_v142_leverage_policy_disables_5x_after_drawdown_trigger() -> None:
+def test_realtime_safe_policy_does_not_use_research_5x_rescue() -> None:
     policy = V142LeveragePolicy(PaperTradingConfig())
+    signal = PaperSignal(
+        timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+        signal_id="s1",
+        symbol="BTCUSDC",
+        side=1,
+        source="test",
+        leg="rescue",
+        direction_probability=0.67,
+    )
+
+    leverage, high_confidence = policy.leverage_for_signal(signal, prior_drawdown_pct=0.0)
+
+    assert leverage == 1.0
+    assert high_confidence is False
+
+
+def test_v142_leverage_policy_disables_5x_after_drawdown_trigger() -> None:
+    policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(
         timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
         signal_id="s1",
@@ -129,7 +148,7 @@ def test_v142_paper_runner_writes_logs_trades_balance_and_dashboard(tmp_path: Pa
         out_dir=out_dir,
         market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
         signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
-        config=PaperTradingConfig(initial_balance_usdc=10_000.0),
+        config=PaperTradingConfig(initial_balance_usdc=10_000.0, strategy_mode="research_v142"),
         clean=True,
         sleep=False,
     )
@@ -175,13 +194,15 @@ def test_paper_broker_close_drawdown_does_not_count_closed_position_twice() -> N
     broker.on_snapshot(close_snapshot, [])
 
     close_row = [row for row in broker.trades if row["event_type"] == "close"][0]
-    assert close_row["balance_usdc"] == 6500.0
-    assert close_row["equity_usdc"] == 6500.0
-    assert close_row["drawdown_pct"] == -35.0
+    assert close_row["balance_usdc"] == 9000.0
+    assert close_row["equity_usdc"] == 9000.0
+    assert close_row["drawdown_pct"] == pytest.approx(-10.0)
 
 
 def test_paper_broker_caps_total_open_notional_to_policy_leverage() -> None:
-    broker = PaperBroker(PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0))
+    broker = PaperBroker(
+        PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0, strategy_mode="research_v142")
+    )
     snapshot = MarketSnapshot(
         timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
         symbol="BTCUSDC",
@@ -211,6 +232,32 @@ def test_paper_broker_caps_total_open_notional_to_policy_leverage() -> None:
 
     assert event["opened"] == 1
     assert sum(position.notional_usdc for position in broker.open_positions) == 35_000.0
+
+
+def test_cli_paper_trade_defaults_to_realtime_safe_strategy(tmp_path: Path) -> None:
+    from lob_microprice_lab.cli import main
+
+    out_dir = tmp_path / "cli-paper"
+
+    rc = main(
+        [
+            "paper-trade-v142",
+            "--out",
+            str(out_dir),
+            "--source",
+            "synthetic",
+            "--ticks",
+            "1",
+            "--interval-sec",
+            "60",
+            "--clean",
+            "--no-sleep",
+        ]
+    )
+
+    assert rc == 0
+    config = json.loads((out_dir / "paper_config.json").read_text(encoding="utf-8"))
+    assert config["strategy_mode"] == "realtime_safe"
 
 
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:

@@ -54,8 +54,10 @@ class PaperPosition:
 @dataclass(frozen=True)
 class PaperTradingConfig:
     symbol: str = "BTCUSDC"
+    strategy_mode: str = "realtime_safe"
     initial_balance_usdc: float = 10_000.0
     fee_bps_per_side: float = 4.0
+    realtime_safe_leverage: float = 1.0
     high_confidence_probability_floor: float = 0.66
     high_confidence_rescue_leverage: float = 5.0
     high_account_leverage: float = 3.5
@@ -64,6 +66,10 @@ class PaperTradingConfig:
     mid_drawdown_trigger_pct: float = -5.0
     low_drawdown_trigger_pct: float = -15.0
     default_horizon_minutes: int = 30
+
+    def __post_init__(self) -> None:
+        if self.strategy_mode not in {"realtime_safe", "research_v142"}:
+            raise ValueError("strategy_mode must be realtime_safe or research_v142")
 
 
 EVENT_FIELDNAMES = [
@@ -239,6 +245,8 @@ class V142LeveragePolicy:
         self.config = config
 
     def leverage_for_signal(self, signal: PaperSignal, *, prior_drawdown_pct: float) -> tuple[float, bool]:
+        if self.config.strategy_mode == "realtime_safe":
+            return self.config.realtime_safe_leverage, False
         if prior_drawdown_pct <= self.config.low_drawdown_trigger_pct:
             return self.config.low_account_leverage, False
         if prior_drawdown_pct <= self.config.mid_drawdown_trigger_pct:

@@ -918,6 +918,12 @@ def build_parser() -> argparse.ArgumentParser:
     paper.add_argument("--interval-sec", type=float, default=60.0)
     paper.add_argument("--initial-balance-usdc", type=float, default=10_000.0)
     paper.add_argument("--fee-bps-per-side", type=float, default=4.0)
+    paper.add_argument(
+        "--strategy-mode",
+        choices=["realtime_safe", "research_v142"],
+        default="realtime_safe",
+        help="Use realtime_safe for live paper monitoring; research_v142 replays the historical V142 leverage policy.",
+    )
     paper.add_argument("--clean", action="store_true")
     paper.add_argument("--no-sleep", action="store_true")
 
@@ -961,6 +967,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "paper-trade-v142":
         config = PaperTradingConfig(
             symbol=args.symbol.upper(),
+            strategy_mode=args.strategy_mode,
             initial_balance_usdc=args.initial_balance_usdc,
             fee_bps_per_side=args.fee_bps_per_side,
         )
