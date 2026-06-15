@@ -1185,6 +1185,12 @@ btcusdc-v192-long-base-low-probz-throttle:
 test-btcusdc-v192:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v192_long_base_low_probz_throttle.py
 
+btcusdc-v193-long-base-top5-premium6h-throttle:
+	PYTHONPATH=src python scripts/run_btcusdc_v193_long_base_top5_premium6h_throttle.py
+
+test-btcusdc-v193:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v193_long_base_top5_premium6h_throttle.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
