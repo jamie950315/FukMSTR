@@ -33,6 +33,7 @@ class PaperSignal:
     leg: str
     direction_probability: float | None = None
     horizon_minutes: int = 30
+    available_at: pd.Timestamp | None = None
 
 
 @dataclass
@@ -119,6 +120,7 @@ REJECTED_SIGNAL_FIELDNAMES = [
     "symbol",
     "snapshot_symbol",
     "signal_timestamp",
+    "available_at",
     "side",
     "source",
     "leg",
@@ -135,6 +137,11 @@ class MarketDataSource(Protocol):
 class SignalProvider(Protocol):
     def signals_for_snapshot(self, snapshot: MarketSnapshot) -> list[PaperSignal]:
         ...
+
+
+def _utc_timestamp(value: object) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 
 class BinancePublicTickerSource:
@@ -217,6 +224,8 @@ class CsvSignalProvider:
         if "side" not in frame.columns and "signal" not in frame.columns:
             raise ValueError("signal CSV must contain side or signal column")
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+        available_col = "available_at" if "available_at" in frame.columns else "generated_at" if "generated_at" in frame.columns else None
+        frame["available_at"] = pd.to_datetime(frame[available_col], utc=True, errors="coerce") if available_col else pd.NaT
         side_col = "side" if "side" in frame.columns else "signal"
         frame["side"] = pd.to_numeric(frame[side_col], errors="coerce").fillna(0)
         frame["symbol"] = frame.get("symbol", default_symbol)
@@ -230,7 +239,9 @@ class CsvSignalProvider:
         self.emitted: set[str] = set()
 
     def signals_for_snapshot(self, snapshot: MarketSnapshot) -> list[PaperSignal]:
-        ready = self.frame.loc[self.frame["timestamp"] <= snapshot.timestamp]
+        snapshot_ts = _utc_timestamp(snapshot.timestamp)
+        effective_available_at = self.frame["available_at"].fillna(self.frame["timestamp"])
+        ready = self.frame.loc[(self.frame["timestamp"] <= snapshot_ts) & (effective_available_at <= snapshot_ts)]
         out: list[PaperSignal] = []
         for _, row in ready.iterrows():
             signal_id = str(row["signal_id"])
@@ -248,6 +259,7 @@ class CsvSignalProvider:
                     leg=str(row["leg"]),
                     direction_probability=None if pd.isna(prob) else float(prob),
                     horizon_minutes=int(row["horizon_minutes"]),
+                    available_at=None if pd.isna(row["available_at"]) else pd.to_datetime(row["available_at"], utc=True),
                 )
             )
         return out
@@ -344,10 +356,12 @@ class PaperBroker:
             if not self._has_valid_side(signal):
                 rejected.append(self._rejected_signal_row(snapshot, signal, reason="invalid_side"))
                 continue
-            signal_ts = pd.Timestamp(signal.timestamp)
-            signal_ts = signal_ts.tz_localize("UTC") if signal_ts.tzinfo is None else signal_ts.tz_convert("UTC")
-            snapshot_ts = pd.Timestamp(snapshot.timestamp)
-            snapshot_ts = snapshot_ts.tz_localize("UTC") if snapshot_ts.tzinfo is None else snapshot_ts.tz_convert("UTC")
+            signal_ts = _utc_timestamp(signal.timestamp)
+            snapshot_ts = _utc_timestamp(snapshot.timestamp)
+            available_at = None if signal.available_at is None else _utc_timestamp(signal.available_at)
+            if available_at is not None and snapshot_ts < available_at:
+                rejected.append(self._rejected_signal_row(snapshot, signal, reason="future_available_at"))
+                continue
             age = snapshot_ts - signal_ts
             max_age = pd.Timedelta(minutes=float(self.config.max_realtime_signal_age_minutes))
             if age < pd.Timedelta(0):
@@ -373,6 +387,7 @@ class PaperBroker:
             "symbol": signal.symbol,
             "snapshot_symbol": snapshot.symbol,
             "signal_timestamp": signal.timestamp.isoformat(),
+            "available_at": "" if signal.available_at is None else _utc_timestamp(signal.available_at).isoformat(),
             "side": signal.side,
             "source": signal.source,
             "leg": signal.leg,

@@ -285,6 +285,33 @@ def test_realtime_safe_rejects_stale_signal_without_opening_position() -> None:
     assert broker.rejected_signals[0]["reason"] == "stale_signal"
 
 
+def test_realtime_safe_rejects_signal_before_available_at_without_opening_position() -> None:
+    broker = PaperBroker(PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0))
+    snapshot = MarketSnapshot(
+        timestamp=pd.Timestamp("2026-01-01T00:01:00Z"),
+        symbol="BTCUSDC",
+        price=100.0,
+        source="test",
+    )
+    not_yet_available = PaperSignal(
+        timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+        signal_id="future-availability",
+        symbol="BTCUSDC",
+        side=1,
+        source="test",
+        leg="base",
+        available_at=pd.Timestamp("2026-01-01T00:02:00Z"),
+    )
+
+    event = broker.on_snapshot(snapshot, [not_yet_available])
+
+    assert event["opened"] == 0
+    assert event["rejected_signal_count"] == 1
+    assert broker.open_positions == []
+    assert broker.rejected_signals[0]["reason"] == "future_available_at"
+    assert broker.rejected_signals[0]["available_at"] == "2026-01-01T00:02:00+00:00"
+
+
 def test_research_mode_keeps_historical_stale_signal_replay() -> None:
     broker = PaperBroker(
         PaperTradingConfig(initial_balance_usdc=10_000.0, fee_bps_per_side=0.0, strategy_mode="research_v142")
@@ -414,6 +441,84 @@ def test_csv_signal_provider_exposes_invalid_rows_for_realtime_rejection_log(tmp
         {"signal_id": "bad-side", "reason": "invalid_side"},
         {"signal_id": "decimal-side", "reason": "invalid_side"},
     ]
+
+
+def test_csv_signal_provider_waits_for_available_at_before_emitting(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    _write_text(
+        price_csv,
+        "\n".join(
+            [
+                "timestamp,price",
+                "2026-01-01T00:00:00Z,100",
+                "2026-01-01T00:02:00Z,101",
+            ]
+        ),
+    )
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,available_at,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,2026-01-01T00:02:00Z,late-ready,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        clean=True,
+        sleep=False,
+    )
+
+    events = pd.read_csv(out_dir / "balance.csv")
+    trades = pd.read_csv(out_dir / "trades.csv")
+    assert summary["trades"] == 1
+    assert summary["rejected_signals"] == 0
+    assert events.loc[0, "opened"] == 0
+    assert events.loc[1, "opened"] == 1
+    assert trades.loc[0, "signal_id"] == "late-ready"
+    assert trades.loc[0, "timestamp"] == "2026-01-01T00:02:00+00:00"
+
+
+def test_csv_signal_provider_accepts_generated_at_as_available_at_alias(tmp_path: Path) -> None:
+    signal_csv = tmp_path / "signals.csv"
+    _write_text(
+        signal_csv,
+        "\n".join(
+            [
+                "timestamp,generated_at,signal_id,symbol,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,2026-01-01T00:02:00Z,generated-ready,BTCUSDC,1,base,0.60,30",
+            ]
+        ),
+    )
+    provider = CsvSignalProvider(signal_csv, default_symbol="BTCUSDC")
+
+    early = provider.signals_for_snapshot(
+        MarketSnapshot(
+            timestamp=pd.Timestamp("2026-01-01T00:01:00Z"),
+            symbol="BTCUSDC",
+            price=100.0,
+            source="test",
+        )
+    )
+    ready = provider.signals_for_snapshot(
+        MarketSnapshot(
+            timestamp=pd.Timestamp("2026-01-01T00:02:00Z"),
+            symbol="BTCUSDC",
+            price=100.0,
+            source="test",
+        )
+    )
+
+    assert early == []
+    assert len(ready) == 1
+    assert ready[0].signal_id == "generated-ready"
+    assert ready[0].available_at == pd.Timestamp("2026-01-01T00:02:00Z")
 
 
 def test_paper_runner_sleeps_between_bounded_live_ticks(tmp_path: Path, monkeypatch) -> None:

@@ -1224,6 +1224,9 @@ test-btcusdc-v199:
 test-btcusdc-v200:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py
 
+test-btcusdc-v201:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
