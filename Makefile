@@ -1173,6 +1173,12 @@ btcusdc-v190-short-base-prior-rally-stepup:
 test-btcusdc-v190:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v190_short_base_prior_rally_stepup.py
 
+btcusdc-v191-long-base-prior-range-stepup:
+	PYTHONPATH=src python scripts/run_btcusdc_v191_long_base_prior_range_stepup.py
+
+test-btcusdc-v191:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v191_long_base_prior_range_stepup.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 
