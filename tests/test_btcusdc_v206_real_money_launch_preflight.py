@@ -27,8 +27,10 @@ def _ready_payload() -> dict[str, object]:
             "requires_execution_validation": True,
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
+            "requires_readiness_source_provenance": True,
         },
         "checks": {
+            "readiness_source_provenance_clean": True,
             "forward_freshness_clean": True,
             "public_data_available": True,
             "execution_validation_passed": True,
@@ -55,6 +57,10 @@ def _ready_payload() -> dict[str, object]:
             "execution_slippage_p95_clean": True,
             "execution_kill_switch_tested": True,
             "execution_secrets_absent_from_repo": True,
+            "readiness_source_commit": "test-source-commit",
+            "readiness_runtime_source_clean": True,
+            "readiness_dirty_runtime_path_count": 0,
+            "readiness_dirty_runtime_paths": [],
         },
         "decision": {
             "status": "real_money_ready",
@@ -166,6 +172,43 @@ def test_v206_blocks_ready_summary_without_v216_execution_provenance() -> None:
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_execution_provenance_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_v218_source_provenance() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    del readiness_payload["config"]["requires_readiness_source_provenance"]
+    del readiness_payload["checks"]["readiness_source_provenance_clean"]
+    del readiness_payload["evidence"]["readiness_source_commit"]
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_source_provenance_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_from_different_source_commit() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["evidence"], dict)
+    readiness_payload["evidence"]["readiness_source_commit"] = "old-source-commit"
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+        current_source_commit="test-source-commit",
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_source_provenance_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> None:

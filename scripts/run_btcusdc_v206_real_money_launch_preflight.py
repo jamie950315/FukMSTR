@@ -105,6 +105,41 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
     )
 
 
+def _current_git_commit() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "git_commit_unavailable"
+    return result.stdout.strip() or "git_commit_unavailable"
+
+
+def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, current_source_commit: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    if not (isinstance(config, dict) and isinstance(checks, dict) and isinstance(evidence, dict)):
+        return False
+    dirty_path_count = evidence.get("readiness_dirty_runtime_path_count", 999)
+    if dirty_path_count is None:
+        dirty_path_count = 999
+    return (
+        current_source_commit not in {"", "git_commit_unavailable"}
+        and config.get("requires_readiness_source_provenance") is True
+        and checks.get("readiness_source_provenance_clean") is True
+        and evidence.get("readiness_source_commit") == current_source_commit
+        and evidence.get("readiness_runtime_source_clean") is True
+        and int(dirty_path_count) == 0
+    )
+
+
 def _dirty_runtime_paths_from_git() -> list[str]:
     try:
         result = subprocess.run(
@@ -133,11 +168,16 @@ def _preflight_payload(
     readiness_payload: dict[str, Any] | None,
     arm_token: str,
     dirty_runtime_paths: list[str],
+    current_source_commit: str = "test-source-commit",
 ) -> dict[str, Any]:
     readiness = _decision(readiness_payload)
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
     public_data_available = _readiness_public_data_available(readiness_payload)
     execution_provenance_clean = _readiness_execution_provenance_clean(readiness_payload)
+    source_provenance_clean = _readiness_source_provenance_clean(
+        readiness_payload,
+        current_source_commit=current_source_commit,
+    )
     checks = {
         "readiness_gate_passed": (
             readiness.get("status") == "real_money_ready"
@@ -147,6 +187,7 @@ def _preflight_payload(
         "readiness_forward_freshness_clean": forward_freshness_clean,
         "readiness_public_data_available": public_data_available,
         "readiness_execution_provenance_clean": execution_provenance_clean,
+        "readiness_source_provenance_clean": source_provenance_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -164,6 +205,7 @@ def _preflight_payload(
             "requires_v212_forward_freshness": True,
             "requires_v214_public_data_availability": True,
             "requires_v216_execution_provenance": True,
+            "requires_v218_readiness_source_provenance": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -174,6 +216,8 @@ def _preflight_payload(
             "readiness_forward_freshness_clean": forward_freshness_clean,
             "readiness_public_data_available": public_data_available,
             "readiness_execution_provenance_clean": execution_provenance_clean,
+            "readiness_source_provenance_clean": source_provenance_clean,
+            "current_source_commit": current_source_commit,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },
@@ -219,6 +263,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V212 forward freshness present and passed | {checks['readiness_forward_freshness_clean']} | readiness_forward_freshness_clean={evidence['readiness_forward_freshness_clean']} |",
         f"| V214 public data present and passed | {checks['readiness_public_data_available']} | readiness_public_data_available={evidence['readiness_public_data_available']} |",
         f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
+        f"| V218 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']} |",
         f"| Explicit real-money arm | {checks['explicit_real_money_arm']} | required token is documented but not persisted |",
         f"| Runtime source clean | {checks['runtime_source_clean']} | dirty_runtime_path_count={evidence['dirty_runtime_path_count']} |",
         "",
@@ -238,7 +283,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, and V216 execution/signal provenance evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
+        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, and V218 current-source provenance evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
         "",
         "This is still not live trading code and it does not place exchange orders.",
         "",
@@ -253,6 +298,7 @@ def run(*, arm_token: str = "") -> dict[str, Any]:
         readiness_payload=_load_json(READINESS_SUMMARY),
         arm_token=arm_token,
         dirty_runtime_paths=_dirty_runtime_paths_from_git(),
+        current_source_commit=_current_git_commit(),
     )
     (OUT_DIR / "v206_real_money_launch_preflight_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),

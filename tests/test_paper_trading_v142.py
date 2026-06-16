@@ -198,6 +198,80 @@ def test_real_trade_preflight_blocks_ready_summary_without_v216_execution_proven
     assert "readiness_execution_provenance_clean" in payload["decision"]["failed_checks"]
 
 
+def test_real_trade_preflight_blocks_ready_summary_from_different_source_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import lob_microprice_lab.real_money_launch as launch
+
+    monkeypatch.setattr(launch, "_dirty_runtime_paths_from_git", lambda: [])
+    monkeypatch.setattr(launch, "_current_git_commit", lambda: "current-source-commit")
+    readiness_summary = tmp_path / "ready_from_old_commit.json"
+    readiness_summary.write_text(
+        json.dumps(
+            {
+                "config": {
+                    "min_execution_fills": 30,
+                    "requires_forward_freshness": True,
+                    "requires_public_data_availability": True,
+                    "requires_execution_validation": True,
+                    "requires_execution_provenance": True,
+                    "requires_signal_provenance": True,
+                    "requires_readiness_source_provenance": True,
+                },
+                "checks": {
+                    "forward_freshness_clean": True,
+                    "public_data_available": True,
+                    "execution_validation_passed": True,
+                    "execution_fill_evidence_available": True,
+                    "filled_status_clean": True,
+                    "execution_provenance_clean": True,
+                    "signal_provenance_clean": True,
+                    "execution_slippage_p95_clean": True,
+                    "execution_kill_switch_tested": True,
+                    "execution_secrets_absent_from_repo": True,
+                    "readiness_source_provenance_clean": True,
+                },
+                "evidence": {
+                    "forward_freshness_status": "forward_freshness_passed",
+                    "forward_data_current": True,
+                    "fresh_forward_evidence_available": True,
+                    "public_data_status": "public_data_availability_passed",
+                    "public_data_available": True,
+                    "execution_validation_passed": True,
+                    "execution_fill_count": 30,
+                    "execution_fill_evidence_available": True,
+                    "filled_status_clean": True,
+                    "execution_provenance_clean": True,
+                    "signal_provenance_clean": True,
+                    "execution_slippage_p95_clean": True,
+                    "execution_kill_switch_tested": True,
+                    "execution_secrets_absent_from_repo": True,
+                    "readiness_source_commit": "old-source-commit",
+                    "readiness_runtime_source_clean": True,
+                    "readiness_dirty_runtime_path_count": 0,
+                    "readiness_dirty_runtime_paths": [],
+                },
+                "decision": {
+                    "status": "real_money_ready",
+                    "promote_to_real_money": True,
+                    "failed_checks": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = launch.real_money_launch_preflight(
+        out_dir=tmp_path / "real-money",
+        arm_token=launch.REQUIRED_ARM_TOKEN,
+        readiness_summary=readiness_summary,
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_source_provenance_clean" in payload["decision"]["failed_checks"]
+
+
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
     policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(

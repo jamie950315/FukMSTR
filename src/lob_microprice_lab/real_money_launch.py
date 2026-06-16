@@ -102,6 +102,41 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
     )
 
 
+def _current_git_commit() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "git_commit_unavailable"
+    return result.stdout.strip() or "git_commit_unavailable"
+
+
+def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, current_source_commit: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    if not (isinstance(config, dict) and isinstance(checks, dict) and isinstance(evidence, dict)):
+        return False
+    dirty_path_count = evidence.get("readiness_dirty_runtime_path_count", 999)
+    if dirty_path_count is None:
+        dirty_path_count = 999
+    return (
+        current_source_commit not in {"", "git_commit_unavailable"}
+        and config.get("requires_readiness_source_provenance") is True
+        and checks.get("readiness_source_provenance_clean") is True
+        and evidence.get("readiness_source_commit") == current_source_commit
+        and evidence.get("readiness_runtime_source_clean") is True
+        and int(dirty_path_count) == 0
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -144,6 +179,11 @@ def real_money_launch_preflight(
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
     public_data_available = _readiness_public_data_available(readiness_payload)
     execution_provenance_clean = _readiness_execution_provenance_clean(readiness_payload)
+    current_source_commit = _current_git_commit()
+    source_provenance_clean = _readiness_source_provenance_clean(
+        readiness_payload,
+        current_source_commit=current_source_commit,
+    )
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -154,6 +194,7 @@ def real_money_launch_preflight(
         "readiness_forward_freshness_clean": forward_freshness_clean,
         "readiness_public_data_available": public_data_available,
         "readiness_execution_provenance_clean": execution_provenance_clean,
+        "readiness_source_provenance_clean": source_provenance_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -171,6 +212,7 @@ def real_money_launch_preflight(
             "requires_v212_forward_freshness": True,
             "requires_v214_public_data_availability": True,
             "requires_v216_execution_provenance": True,
+            "requires_v218_readiness_source_provenance": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -182,6 +224,8 @@ def real_money_launch_preflight(
             "readiness_forward_freshness_clean": forward_freshness_clean,
             "readiness_public_data_available": public_data_available,
             "readiness_execution_provenance_clean": execution_provenance_clean,
+            "readiness_source_provenance_clean": source_provenance_clean,
+            "current_source_commit": current_source_commit,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },

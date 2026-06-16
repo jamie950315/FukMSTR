@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,14 @@ EXECUTION_VALIDATION_SUMMARY = (
 MIN_FORWARD_TRADES = 30
 MAX_EXECUTION_SLIPPAGE_BPS_P95 = 5.0
 MIN_EXECUTION_FILLS = 30
+RUNTIME_PREFIXES = (
+    "src/",
+    "scripts/",
+    "tests/",
+    "Makefile",
+    "pyproject.toml",
+    "requirements.txt",
+)
 
 
 def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -43,6 +52,43 @@ def _evidence(payload: dict[str, Any] | None) -> dict[str, Any]:
     return evidence if isinstance(evidence, dict) else {}
 
 
+def _current_git_commit() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "git_commit_unavailable"
+    return result.stdout.strip() or "git_commit_unavailable"
+
+
+def _dirty_runtime_paths_from_git() -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ["git_status_unavailable"]
+    dirty: list[str] = []
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path.startswith(RUNTIME_PREFIXES) or path in RUNTIME_PREFIXES:
+            dirty.append(path)
+    return sorted(set(dirty))
+
+
 def _payload_for_readiness(
     *,
     overfit_payload: dict[str, Any] | None,
@@ -51,6 +97,8 @@ def _payload_for_readiness(
     execution_payload: dict[str, Any] | None,
     forward_freshness_payload: dict[str, Any] | None = None,
     public_data_payload: dict[str, Any] | None = None,
+    source_commit: str = "test-source-commit",
+    dirty_runtime_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
@@ -61,8 +109,11 @@ def _payload_for_readiness(
     public_data = _decision(public_data_payload)
     realtime = realtime_summary if isinstance(realtime_summary, dict) else {}
     execution_slippage = float(execution.get("max_slippage_bps_p95", 999.0) or 999.0)
+    dirty_paths = dirty_runtime_paths if dirty_runtime_paths is not None else []
+    readiness_source_clean = source_commit not in {"", "git_commit_unavailable"} and not dirty_paths
 
     checks = {
+        "readiness_source_provenance_clean": readiness_source_clean,
         "historical_optimization_frozen_clean": (
             overfit.get("status") == "post_goal_overfitting_not_detected"
             and overfit.get("stop_historical_optimization") is False
@@ -128,6 +179,7 @@ def _payload_for_readiness(
             "requires_execution_validation": True,
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
+            "requires_readiness_source_provenance": True,
             "changes_strategy_thresholds": False,
             "changes_trade_side": False,
             "changes_leverage_logic": False,
@@ -168,6 +220,10 @@ def _payload_for_readiness(
             "execution_slippage_p95_clean": execution_checks.get("slippage_p95_clean"),
             "execution_kill_switch_tested": execution_checks.get("kill_switch_tested"),
             "execution_secrets_absent_from_repo": execution_checks.get("secrets_absent_from_repo"),
+            "readiness_source_commit": source_commit,
+            "readiness_runtime_source_clean": readiness_source_clean,
+            "readiness_dirty_runtime_paths": dirty_paths,
+            "readiness_dirty_runtime_path_count": len(dirty_paths),
         },
         "checks": checks,
         "decision": {
@@ -207,6 +263,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "| Check | Passed | Evidence |",
         "|---|---:|---|",
+        f"| Readiness source provenance clean | {checks['readiness_source_provenance_clean']} | source_commit={evidence['readiness_source_commit']}; dirty_runtime_path_count={evidence['readiness_dirty_runtime_path_count']} |",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
@@ -233,7 +290,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, or missing execution/signal provenance are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",
@@ -251,6 +308,8 @@ def run() -> dict[str, Any]:
         execution_payload=_load_json(EXECUTION_VALIDATION_SUMMARY),
         forward_freshness_payload=_load_json(V212_SUMMARY),
         public_data_payload=_load_json(V214_SUMMARY),
+        source_commit=_current_git_commit(),
+        dirty_runtime_paths=_dirty_runtime_paths_from_git(),
     )
     (OUT_DIR / "v204_real_money_readiness_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),
