@@ -19,6 +19,7 @@ EXECUTION_VALIDATION_SUMMARY = (
 
 MIN_FORWARD_TRADES = 30
 MAX_EXECUTION_SLIPPAGE_BPS_P95 = 5.0
+MIN_EXECUTION_FILLS = 30
 
 
 def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -26,6 +27,20 @@ def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     decision = payload.get("decision", {})
     return decision if isinstance(decision, dict) else {}
+
+
+def _checks(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    checks = payload.get("checks", {})
+    return checks if isinstance(checks, dict) else {}
+
+
+def _evidence(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    evidence = payload.get("evidence", {})
+    return evidence if isinstance(evidence, dict) else {}
 
 
 def _payload_for_readiness(
@@ -40,9 +55,12 @@ def _payload_for_readiness(
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
     execution = _decision(execution_payload)
+    execution_checks = _checks(execution_payload)
+    execution_evidence = _evidence(execution_payload)
     forward_freshness = _decision(forward_freshness_payload)
     public_data = _decision(public_data_payload)
     realtime = realtime_summary if isinstance(realtime_summary, dict) else {}
+    execution_slippage = float(execution.get("max_slippage_bps_p95", 999.0) or 999.0)
 
     checks = {
         "historical_optimization_frozen_clean": (
@@ -68,9 +86,30 @@ def _payload_for_readiness(
         ),
         "execution_validation_passed": (
             execution.get("status") == "execution_validation_passed"
+            and execution.get("execution_validation_passed") is True
+            and not execution.get("failed_checks", [])
             and execution.get("kill_switch_tested") is True
             and execution.get("secrets_present_in_repo") is False
-            and float(execution.get("max_slippage_bps_p95", 999.0) or 999.0) <= MAX_EXECUTION_SLIPPAGE_BPS_P95
+            and execution_slippage <= MAX_EXECUTION_SLIPPAGE_BPS_P95
+        ),
+        "execution_fill_evidence_available": (
+            execution_checks.get("fill_evidence_available") is True
+            and int(execution_evidence.get("fill_count", 0) or 0) >= MIN_EXECUTION_FILLS
+        ),
+        "filled_status_clean": execution_checks.get("filled_status_clean") is True,
+        "execution_provenance_clean": execution_checks.get("execution_provenance_clean") is True,
+        "signal_provenance_clean": execution_checks.get("signal_provenance_clean") is True,
+        "execution_slippage_p95_clean": (
+            execution_checks.get("slippage_p95_clean") is True
+            and execution_slippage <= MAX_EXECUTION_SLIPPAGE_BPS_P95
+        ),
+        "execution_kill_switch_tested": (
+            execution_checks.get("kill_switch_tested") is True
+            and execution.get("kill_switch_tested") is True
+        ),
+        "execution_secrets_absent_from_repo": (
+            execution_checks.get("secrets_absent_from_repo") is True
+            and execution.get("secrets_present_in_repo") is False
         ),
     }
     failed = [name for name, passed in checks.items() if not passed]
@@ -80,12 +119,15 @@ def _payload_for_readiness(
         "config": {
             "min_forward_trades": MIN_FORWARD_TRADES,
             "max_execution_slippage_bps_p95": MAX_EXECUTION_SLIPPAGE_BPS_P95,
+            "min_execution_fills": MIN_EXECUTION_FILLS,
             "requires_clean_overfit_audit": True,
             "requires_forward_evidence": True,
             "requires_forward_freshness": True,
             "requires_public_data_availability": True,
             "requires_realtime_smoke_clean": True,
             "requires_execution_validation": True,
+            "requires_execution_provenance": True,
+            "requires_signal_provenance": True,
             "changes_strategy_thresholds": False,
             "changes_trade_side": False,
             "changes_leverage_logic": False,
@@ -113,9 +155,19 @@ def _payload_for_readiness(
             "rejected_signals": int(realtime.get("rejected_signals", 0) or 0),
             "market_data_errors": int(realtime.get("market_data_errors", 0) or 0),
             "execution_status": execution.get("status", "missing"),
+            "execution_failed_checks": execution.get("failed_checks", []),
+            "execution_validation_passed": execution.get("execution_validation_passed"),
+            "execution_fill_count": int(execution_evidence.get("fill_count", 0) or 0),
             "kill_switch_tested": execution.get("kill_switch_tested"),
             "secrets_present_in_repo": execution.get("secrets_present_in_repo"),
             "max_slippage_bps_p95": execution.get("max_slippage_bps_p95"),
+            "execution_fill_evidence_available": execution_checks.get("fill_evidence_available"),
+            "filled_status_clean": execution_checks.get("filled_status_clean"),
+            "execution_provenance_clean": execution_checks.get("execution_provenance_clean"),
+            "signal_provenance_clean": execution_checks.get("signal_provenance_clean"),
+            "execution_slippage_p95_clean": execution_checks.get("slippage_p95_clean"),
+            "execution_kill_switch_tested": execution_checks.get("kill_switch_tested"),
+            "execution_secrets_absent_from_repo": execution_checks.get("secrets_absent_from_repo"),
         },
         "checks": checks,
         "decision": {
@@ -160,7 +212,14 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
         f"| Public data available | {checks['public_data_available']} | public_data_status={evidence['public_data_status']}; public_data_available={evidence['public_data_available']}; failed_checks={evidence['public_data_failed_checks']} |",
         f"| Realtime smoke clean | {checks['realtime_smoke_clean']} | rejected_signals={evidence['rejected_signals']}; market_data_errors={evidence['market_data_errors']} |",
-        f"| Execution validation passed | {checks['execution_validation_passed']} | execution_status={evidence['execution_status']}; kill_switch_tested={evidence['kill_switch_tested']}; secrets_present_in_repo={evidence['secrets_present_in_repo']}; max_slippage_bps_p95={evidence['max_slippage_bps_p95']} |",
+        f"| Execution validation passed | {checks['execution_validation_passed']} | execution_status={evidence['execution_status']}; execution_validation_passed={evidence['execution_validation_passed']}; failed_checks={evidence['execution_failed_checks']} |",
+        f"| Execution fill evidence available | {checks['execution_fill_evidence_available']} | fill_count={evidence['execution_fill_count']}; min_execution_fills={payload['config']['min_execution_fills']} |",
+        f"| Filled status clean | {checks['filled_status_clean']} | filled_status_clean={evidence['filled_status_clean']} |",
+        f"| Execution provenance clean | {checks['execution_provenance_clean']} | execution_provenance_clean={evidence['execution_provenance_clean']} |",
+        f"| Signal provenance clean | {checks['signal_provenance_clean']} | signal_provenance_clean={evidence['signal_provenance_clean']} |",
+        f"| Execution slippage p95 clean | {checks['execution_slippage_p95_clean']} | max_slippage_bps_p95={evidence['max_slippage_bps_p95']}; slippage_p95_clean={evidence['execution_slippage_p95_clean']} |",
+        f"| Execution kill switch tested | {checks['execution_kill_switch_tested']} | kill_switch_tested={evidence['kill_switch_tested']}; execution_check={evidence['execution_kill_switch_tested']} |",
+        f"| Execution secrets absent | {checks['execution_secrets_absent_from_repo']} | secrets_present_in_repo={evidence['secrets_present_in_repo']}; execution_check={evidence['execution_secrets_absent_from_repo']} |",
         "",
         "## Iteration Metrics",
         "",
@@ -174,7 +233,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, or missing execution validation are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",
