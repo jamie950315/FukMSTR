@@ -26,6 +26,24 @@ def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
     return decision if isinstance(decision, dict) else {}
 
 
+def _readiness_forward_freshness_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    return (
+        isinstance(config, dict)
+        and isinstance(checks, dict)
+        and isinstance(evidence, dict)
+        and config.get("requires_forward_freshness") is True
+        and checks.get("forward_freshness_clean") is True
+        and evidence.get("forward_freshness_status") == "forward_freshness_passed"
+        and evidence.get("forward_data_current") is True
+        and evidence.get("fresh_forward_evidence_available") is True
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -63,7 +81,9 @@ def real_money_launch_preflight(
 ) -> dict[str, Any]:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    readiness = _decision(_load_json(readiness_summary))
+    readiness_payload = _load_json(readiness_summary)
+    readiness = _decision(readiness_payload)
+    forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -71,6 +91,7 @@ def real_money_launch_preflight(
             and readiness.get("promote_to_real_money") is True
             and not readiness.get("failed_checks")
         ),
+        "readiness_forward_freshness_clean": forward_freshness_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -85,6 +106,7 @@ def real_money_launch_preflight(
             "changes_trade_side": False,
             "changes_leverage_logic": False,
             "requires_v204_readiness": True,
+            "requires_v212_forward_freshness": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -93,6 +115,7 @@ def real_money_launch_preflight(
             "readiness_status": readiness.get("status", "missing"),
             "readiness_promote_to_real_money": readiness.get("promote_to_real_money"),
             "readiness_failed_checks": readiness.get("failed_checks", []),
+            "readiness_forward_freshness_clean": forward_freshness_clean,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },

@@ -27,6 +27,8 @@ The preflight still does not place orders. It only confirms whether a future liv
 V206 allows real-money launch only when all checks pass:
 
 - V204 readiness gate reports `real_money_ready`
+- V204 summary includes V212 forward freshness evidence
+- V212 freshness evidence reports current forward data and enough passing forward trades
 - `promote_to_real_money` is `true`
 - no V204 failed checks remain
 - the explicit arm token is provided

@@ -20,6 +20,17 @@ def _load_module():
 
 def _ready_payload() -> dict[str, object]:
     return {
+        "config": {
+            "requires_forward_freshness": True,
+        },
+        "checks": {
+            "forward_freshness_clean": True,
+        },
+        "evidence": {
+            "forward_freshness_status": "forward_freshness_passed",
+            "forward_data_current": True,
+            "fresh_forward_evidence_available": True,
+        },
         "decision": {
             "status": "real_money_ready",
             "promote_to_real_money": True,
@@ -72,6 +83,25 @@ def test_v206_blocks_real_money_launch_when_runtime_source_is_dirty() -> None:
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "runtime_source_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_legacy_ready_summary_without_v212_forward_freshness() -> None:
+    module = _load_module()
+
+    payload = module._preflight_payload(
+        readiness_payload={
+            "decision": {
+                "status": "real_money_ready",
+                "promote_to_real_money": True,
+                "failed_checks": [],
+            }
+        },
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_forward_freshness_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> None:

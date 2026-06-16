@@ -87,6 +87,33 @@ def test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready(tmp_path
     assert summary["config"]["places_live_orders"] is False
 
 
+def test_real_trade_preflight_blocks_legacy_ready_summary_without_v212(tmp_path: Path) -> None:
+    from lob_microprice_lab.real_money_launch import REQUIRED_ARM_TOKEN, real_money_launch_preflight
+
+    readiness_summary = tmp_path / "legacy_ready.json"
+    readiness_summary.write_text(
+        json.dumps(
+            {
+                "decision": {
+                    "status": "real_money_ready",
+                    "promote_to_real_money": True,
+                    "failed_checks": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = real_money_launch_preflight(
+        out_dir=tmp_path / "real-money",
+        arm_token=REQUIRED_ARM_TOKEN,
+        readiness_summary=readiness_summary,
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_forward_freshness_clean" in payload["decision"]["failed_checks"]
+
+
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
     policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(
