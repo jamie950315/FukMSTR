@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -137,6 +138,44 @@ def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, curren
     )
 
 
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _readiness_input_hashes_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    inputs = payload.get("inputs", {})
+    evidence = payload.get("evidence", {})
+    if not (
+        isinstance(config, dict)
+        and isinstance(checks, dict)
+        and isinstance(inputs, dict)
+        and isinstance(evidence, dict)
+    ):
+        return False
+    expected_hashes = evidence.get("readiness_input_hashes", {})
+    if not isinstance(expected_hashes, dict) or not expected_hashes:
+        return False
+    if set(expected_hashes) != set(inputs):
+        return False
+    current_hashes = {name: _file_sha256(Path(str(path))) for name, path in inputs.items()}
+    return (
+        config.get("requires_readiness_input_hashes") is True
+        and checks.get("readiness_input_hashes_clean") is True
+        and all(value not in {"", "missing"} for value in expected_hashes.values())
+        and current_hashes == expected_hashes
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -184,6 +223,7 @@ def real_money_launch_preflight(
         readiness_payload,
         current_source_commit=current_source_commit,
     )
+    input_hashes_clean = _readiness_input_hashes_clean(readiness_payload)
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -195,6 +235,7 @@ def real_money_launch_preflight(
         "readiness_public_data_available": public_data_available,
         "readiness_execution_provenance_clean": execution_provenance_clean,
         "readiness_source_provenance_clean": source_provenance_clean,
+        "readiness_input_hashes_clean": input_hashes_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -213,6 +254,7 @@ def real_money_launch_preflight(
             "requires_v214_public_data_availability": True,
             "requires_v216_execution_provenance": True,
             "requires_v218_readiness_source_provenance": True,
+            "requires_v219_readiness_input_hashes": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -225,6 +267,7 @@ def real_money_launch_preflight(
             "readiness_public_data_available": public_data_available,
             "readiness_execution_provenance_clean": execution_provenance_clean,
             "readiness_source_provenance_clean": source_provenance_clean,
+            "readiness_input_hashes_clean": input_hashes_clean,
             "current_source_commit": current_source_commit,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),

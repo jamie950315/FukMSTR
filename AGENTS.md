@@ -4,12 +4,14 @@
 
 This repository is the public `FukMSTR` research workspace for BTCUSDC short-term trading research, replay, and paper-trading tools.
 
-Current promoted handoff state is V142:
+Current active safety state is V219:
 
-- BTCUSDC historical trade replay page
-- Side backfill from V119 signal reference when old account-path ledgers omit `signal`
-- V142 paper-trading MVP
-- High-confidence rescue 5x leverage path with drawdown throttling
+- V142 remains the paper-trading and historical replay baseline.
+- Old account-path ledgers still backfill `Side` from the V119 signal reference when `signal` is omitted.
+- V204 is the real-money readiness gate and must block launch unless all evidence gates pass.
+- V206 is the final real-money launch preflight and must block launch unless V204 is ready, the operator explicitly arms real-money mode, and runtime source files are clean.
+- V212, V214, V216, V218, and V219 add forward freshness, public data availability, execution/signal provenance, source provenance, and input hash locks.
+- As of V219, the real-money path is still blocked until fresh forward evidence and execution validation are clean.
 
 This is a research candidate, not a live trading system. Do not describe historical backtests as proof of future profit.
 
@@ -56,6 +58,15 @@ For V142-focused changes, also use the relevant target:
 make test-btcusdc-v142
 make test-paper-trading-v142
 make test-trade-replay-v142
+```
+
+For current real-money readiness/preflight safety changes, also use:
+
+```bash
+make test-btcusdc-v219
+make btcusdc-v204-real-money-readiness-gate
+make btcusdc-v206-real-money-launch-preflight
+PYTHONPATH=src python -m lob_microprice_lab.cli real-trade-btcusdc --out runs/research_v207_real_trade_cli_preflight --arm-real-money-token I_UNDERSTAND_THIS_USES_REAL_MONEY
 ```
 
 If a check fails, fix the issue before reporting completion.

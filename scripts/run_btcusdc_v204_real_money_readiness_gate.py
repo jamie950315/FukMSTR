@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -89,6 +90,23 @@ def _dirty_runtime_paths_from_git() -> list[str]:
     return sorted(set(dirty))
 
 
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _readiness_input_hashes(inputs: dict[str, str]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for name, raw_path in sorted(inputs.items()):
+        hashes[name] = _file_sha256(Path(raw_path))
+    return hashes
+
+
 def _payload_for_readiness(
     *,
     overfit_payload: dict[str, Any] | None,
@@ -99,6 +117,7 @@ def _payload_for_readiness(
     public_data_payload: dict[str, Any] | None = None,
     source_commit: str = "test-source-commit",
     dirty_runtime_paths: list[str] | None = None,
+    readiness_input_hashes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
@@ -111,9 +130,20 @@ def _payload_for_readiness(
     execution_slippage = float(execution.get("max_slippage_bps_p95", 999.0) or 999.0)
     dirty_paths = dirty_runtime_paths if dirty_runtime_paths is not None else []
     readiness_source_clean = source_commit not in {"", "git_commit_unavailable"} and not dirty_paths
+    inputs = {
+        "overfit_audit": str(V195_SUMMARY),
+        "forward_monitoring": str(V196_SUMMARY),
+        "forward_freshness": str(V212_SUMMARY),
+        "public_data_availability": str(V214_SUMMARY),
+        "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
+        "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
+    }
+    input_hashes = readiness_input_hashes if readiness_input_hashes is not None else {}
+    input_hashes_clean = bool(input_hashes) and all(value not in {"", "missing"} for value in input_hashes.values())
 
     checks = {
         "readiness_source_provenance_clean": readiness_source_clean,
+        "readiness_input_hashes_clean": input_hashes_clean,
         "historical_optimization_frozen_clean": (
             overfit.get("status") == "post_goal_overfitting_not_detected"
             and overfit.get("stop_historical_optimization") is False
@@ -180,18 +210,12 @@ def _payload_for_readiness(
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
             "requires_readiness_source_provenance": True,
+            "requires_readiness_input_hashes": True,
             "changes_strategy_thresholds": False,
             "changes_trade_side": False,
             "changes_leverage_logic": False,
         },
-        "inputs": {
-            "overfit_audit": str(V195_SUMMARY),
-            "forward_monitoring": str(V196_SUMMARY),
-            "forward_freshness": str(V212_SUMMARY),
-            "public_data_availability": str(V214_SUMMARY),
-            "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
-            "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
-        },
+        "inputs": inputs,
         "evidence": {
             "overfit_status": overfit.get("status", "missing"),
             "stop_historical_optimization": overfit.get("stop_historical_optimization"),
@@ -224,6 +248,7 @@ def _payload_for_readiness(
             "readiness_runtime_source_clean": readiness_source_clean,
             "readiness_dirty_runtime_paths": dirty_paths,
             "readiness_dirty_runtime_path_count": len(dirty_paths),
+            "readiness_input_hashes": input_hashes,
         },
         "checks": checks,
         "decision": {
@@ -264,6 +289,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "| Check | Passed | Evidence |",
         "|---|---:|---|",
         f"| Readiness source provenance clean | {checks['readiness_source_provenance_clean']} | source_commit={evidence['readiness_source_commit']}; dirty_runtime_path_count={evidence['readiness_dirty_runtime_path_count']} |",
+        f"| Readiness input hashes clean | {checks['readiness_input_hashes_clean']} | input_hash_count={len(evidence['readiness_input_hashes'])} |",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
@@ -290,7 +316,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, or missing execution/signal provenance are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",
@@ -301,6 +327,14 @@ def _write_report(payload: dict[str, Any]) -> None:
 def run() -> dict[str, Any]:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    inputs = {
+        "overfit_audit": str(V195_SUMMARY),
+        "forward_monitoring": str(V196_SUMMARY),
+        "forward_freshness": str(V212_SUMMARY),
+        "public_data_availability": str(V214_SUMMARY),
+        "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
+        "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
+    }
     payload = _payload_for_readiness(
         overfit_payload=_load_json(V195_SUMMARY),
         forward_payload=_load_json(V196_SUMMARY),
@@ -310,6 +344,7 @@ def run() -> dict[str, Any]:
         public_data_payload=_load_json(V214_SUMMARY),
         source_commit=_current_git_commit(),
         dirty_runtime_paths=_dirty_runtime_paths_from_git(),
+        readiness_input_hashes=_readiness_input_hashes(inputs),
     )
     (OUT_DIR / "v204_real_money_readiness_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),

@@ -83,6 +83,7 @@ def test_v204_blocks_real_money_when_overfit_or_forward_evidence_fails() -> None
             }
         },
         public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
     )
 
     assert payload["decision"]["status"] == "real_money_blocked"
@@ -122,6 +123,7 @@ def test_v204_requires_execution_validation_even_when_research_checks_pass() -> 
             }
         },
         public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
     )
 
     assert payload["decision"]["promote_to_real_money"] is False
@@ -284,6 +286,7 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
             }
         },
         public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
     )
 
     assert payload["decision"]["status"] == "real_money_ready"

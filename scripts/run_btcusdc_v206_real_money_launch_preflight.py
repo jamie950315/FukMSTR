@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -140,6 +141,44 @@ def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, curren
     )
 
 
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _readiness_input_hashes_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    inputs = payload.get("inputs", {})
+    evidence = payload.get("evidence", {})
+    if not (
+        isinstance(config, dict)
+        and isinstance(checks, dict)
+        and isinstance(inputs, dict)
+        and isinstance(evidence, dict)
+    ):
+        return False
+    expected_hashes = evidence.get("readiness_input_hashes", {})
+    if not isinstance(expected_hashes, dict) or not expected_hashes:
+        return False
+    if set(expected_hashes) != set(inputs):
+        return False
+    current_hashes = {name: _file_sha256(Path(str(path))) for name, path in inputs.items()}
+    return (
+        config.get("requires_readiness_input_hashes") is True
+        and checks.get("readiness_input_hashes_clean") is True
+        and all(value not in {"", "missing"} for value in expected_hashes.values())
+        and current_hashes == expected_hashes
+    )
+
+
 def _dirty_runtime_paths_from_git() -> list[str]:
     try:
         result = subprocess.run(
@@ -178,6 +217,7 @@ def _preflight_payload(
         readiness_payload,
         current_source_commit=current_source_commit,
     )
+    input_hashes_clean = _readiness_input_hashes_clean(readiness_payload)
     checks = {
         "readiness_gate_passed": (
             readiness.get("status") == "real_money_ready"
@@ -188,6 +228,7 @@ def _preflight_payload(
         "readiness_public_data_available": public_data_available,
         "readiness_execution_provenance_clean": execution_provenance_clean,
         "readiness_source_provenance_clean": source_provenance_clean,
+        "readiness_input_hashes_clean": input_hashes_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -206,6 +247,7 @@ def _preflight_payload(
             "requires_v214_public_data_availability": True,
             "requires_v216_execution_provenance": True,
             "requires_v218_readiness_source_provenance": True,
+            "requires_v219_readiness_input_hashes": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -217,6 +259,7 @@ def _preflight_payload(
             "readiness_public_data_available": public_data_available,
             "readiness_execution_provenance_clean": execution_provenance_clean,
             "readiness_source_provenance_clean": source_provenance_clean,
+            "readiness_input_hashes_clean": input_hashes_clean,
             "current_source_commit": current_source_commit,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
@@ -264,6 +307,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V214 public data present and passed | {checks['readiness_public_data_available']} | readiness_public_data_available={evidence['readiness_public_data_available']} |",
         f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
         f"| V218 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']} |",
+        f"| V219 readiness input hashes present and current | {checks['readiness_input_hashes_clean']} | readiness_input_hashes_clean={evidence['readiness_input_hashes_clean']} |",
         f"| Explicit real-money arm | {checks['explicit_real_money_arm']} | required token is documented but not persisted |",
         f"| Runtime source clean | {checks['runtime_source_clean']} | dirty_runtime_path_count={evidence['dirty_runtime_path_count']} |",
         "",
@@ -283,7 +327,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, and V218 current-source provenance evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
+        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, and V219 current input evidence hashes, the operator explicitly arms real-money mode, and runtime source files are clean.",
         "",
         "This is still not live trading code and it does not place exchange orders.",
         "",

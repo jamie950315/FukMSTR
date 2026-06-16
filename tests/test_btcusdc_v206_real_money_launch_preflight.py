@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -19,6 +20,8 @@ def _load_module():
 
 
 def _ready_payload() -> dict[str, object]:
+    input_path = str(SCRIPT_PATH)
+    input_hash = hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
     return {
         "config": {
             "min_execution_fills": 30,
@@ -28,9 +31,14 @@ def _ready_payload() -> dict[str, object]:
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
             "requires_readiness_source_provenance": True,
+            "requires_readiness_input_hashes": True,
+        },
+        "inputs": {
+            "test_input": input_path,
         },
         "checks": {
             "readiness_source_provenance_clean": True,
+            "readiness_input_hashes_clean": True,
             "forward_freshness_clean": True,
             "public_data_available": True,
             "execution_validation_passed": True,
@@ -61,6 +69,9 @@ def _ready_payload() -> dict[str, object]:
             "readiness_runtime_source_clean": True,
             "readiness_dirty_runtime_path_count": 0,
             "readiness_dirty_runtime_paths": [],
+            "readiness_input_hashes": {
+                "test_input": input_hash,
+            },
         },
         "decision": {
             "status": "real_money_ready",
@@ -209,6 +220,43 @@ def test_v206_blocks_ready_summary_from_different_source_commit() -> None:
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_source_provenance_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_v219_input_hash_lock() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    del readiness_payload["config"]["requires_readiness_input_hashes"]
+    del readiness_payload["checks"]["readiness_input_hashes_clean"]
+    del readiness_payload["evidence"]["readiness_input_hashes"]
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_input_hashes_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_when_input_hash_changes() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["evidence"], dict)
+    assert isinstance(readiness_payload["evidence"]["readiness_input_hashes"], dict)
+    readiness_payload["evidence"]["readiness_input_hashes"]["test_input"] = "old-input-hash"
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_input_hashes_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> None:
