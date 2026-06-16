@@ -114,6 +114,44 @@ def test_real_trade_preflight_blocks_legacy_ready_summary_without_v212(tmp_path:
     assert "readiness_forward_freshness_clean" in payload["decision"]["failed_checks"]
 
 
+def test_real_trade_preflight_blocks_ready_summary_without_v214_public_data(tmp_path: Path) -> None:
+    from lob_microprice_lab.real_money_launch import REQUIRED_ARM_TOKEN, real_money_launch_preflight
+
+    readiness_summary = tmp_path / "ready_without_v214.json"
+    readiness_summary.write_text(
+        json.dumps(
+            {
+                "config": {
+                    "requires_forward_freshness": True,
+                },
+                "checks": {
+                    "forward_freshness_clean": True,
+                },
+                "evidence": {
+                    "forward_freshness_status": "forward_freshness_passed",
+                    "forward_data_current": True,
+                    "fresh_forward_evidence_available": True,
+                },
+                "decision": {
+                    "status": "real_money_ready",
+                    "promote_to_real_money": True,
+                    "failed_checks": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = real_money_launch_preflight(
+        out_dir=tmp_path / "real-money",
+        arm_token=REQUIRED_ARM_TOKEN,
+        readiness_summary=readiness_summary,
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_public_data_available" in payload["decision"]["failed_checks"]
+
+
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
     policy = V142LeveragePolicy(PaperTradingConfig(strategy_mode="research_v142"))
     signal = PaperSignal(

@@ -22,14 +22,18 @@ def _ready_payload() -> dict[str, object]:
     return {
         "config": {
             "requires_forward_freshness": True,
+            "requires_public_data_availability": True,
         },
         "checks": {
             "forward_freshness_clean": True,
+            "public_data_available": True,
         },
         "evidence": {
             "forward_freshness_status": "forward_freshness_passed",
             "forward_data_current": True,
             "fresh_forward_evidence_available": True,
+            "public_data_status": "public_data_availability_passed",
+            "public_data_available": True,
         },
         "decision": {
             "status": "real_money_ready",
@@ -102,6 +106,25 @@ def test_v206_blocks_legacy_ready_summary_without_v212_forward_freshness() -> No
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_forward_freshness_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_v214_public_data_availability() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    del readiness_payload["checks"]["public_data_available"]
+    del readiness_payload["evidence"]["public_data_status"]
+    del readiness_payload["evidence"]["public_data_available"]
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_public_data_available" in payload["decision"]["failed_checks"]
 
 
 def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> None:

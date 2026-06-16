@@ -44,6 +44,23 @@ def _readiness_forward_freshness_clean(payload: dict[str, Any] | None) -> bool:
     )
 
 
+def _readiness_public_data_available(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    return (
+        isinstance(config, dict)
+        and isinstance(checks, dict)
+        and isinstance(evidence, dict)
+        and config.get("requires_public_data_availability") is True
+        and checks.get("public_data_available") is True
+        and evidence.get("public_data_status") == "public_data_availability_passed"
+        and evidence.get("public_data_available") is True
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -84,6 +101,7 @@ def real_money_launch_preflight(
     readiness_payload = _load_json(readiness_summary)
     readiness = _decision(readiness_payload)
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
+    public_data_available = _readiness_public_data_available(readiness_payload)
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -92,6 +110,7 @@ def real_money_launch_preflight(
             and not readiness.get("failed_checks")
         ),
         "readiness_forward_freshness_clean": forward_freshness_clean,
+        "readiness_public_data_available": public_data_available,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -107,6 +126,7 @@ def real_money_launch_preflight(
             "changes_leverage_logic": False,
             "requires_v204_readiness": True,
             "requires_v212_forward_freshness": True,
+            "requires_v214_public_data_availability": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -116,6 +136,7 @@ def real_money_launch_preflight(
             "readiness_promote_to_real_money": readiness.get("promote_to_real_money"),
             "readiness_failed_checks": readiness.get("failed_checks", []),
             "readiness_forward_freshness_clean": forward_freshness_clean,
+            "readiness_public_data_available": public_data_available,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },
