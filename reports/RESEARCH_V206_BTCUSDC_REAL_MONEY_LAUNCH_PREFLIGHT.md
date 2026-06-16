@@ -11,12 +11,13 @@
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'execution_validation_passed', 'execution_fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'execution_slippage_p95_clean'] |
+| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'execution_validation_passed', 'execution_fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'execution_slippage_p95_clean', 'recent_execution_evidence_clean'] |
 | V212 forward freshness present and passed | False | readiness_forward_freshness_clean=False |
 | V214 public data present and passed | True | readiness_public_data_available=True |
 | V216 execution provenance present and passed | False | readiness_execution_provenance_clean=False |
-| V218 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=125dc2366a58092d7817287448726442c00a93d8 |
+| V218 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=0894fbf4e2b3fc2722f7b4ca904ff8f208fc7cbf |
 | V219 readiness input hashes present and current | True | readiness_input_hashes_clean=True |
+| V220 recent execution evidence present and current | False | included in readiness_execution_provenance_clean |
 | Explicit real-money arm | False | required token is documented but not persisted |
 | Runtime source clean | True | dirty_runtime_path_count=0 |
 
@@ -36,6 +37,6 @@ none
 
 ## Interpretation
 
-V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, and V219 current input evidence hashes, the operator explicitly arms real-money mode, and runtime source files are clean.
+V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, V219 current input evidence hashes, and V220 recent execution evidence, the operator explicitly arms real-money mode, and runtime source files are clean.
 
 This is still not live trading code and it does not place exchange orders.
