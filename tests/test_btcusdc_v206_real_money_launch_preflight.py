@@ -21,12 +21,24 @@ def _load_module():
 def _ready_payload() -> dict[str, object]:
     return {
         "config": {
+            "min_execution_fills": 30,
             "requires_forward_freshness": True,
             "requires_public_data_availability": True,
+            "requires_execution_validation": True,
+            "requires_execution_provenance": True,
+            "requires_signal_provenance": True,
         },
         "checks": {
             "forward_freshness_clean": True,
             "public_data_available": True,
+            "execution_validation_passed": True,
+            "execution_fill_evidence_available": True,
+            "filled_status_clean": True,
+            "execution_provenance_clean": True,
+            "signal_provenance_clean": True,
+            "execution_slippage_p95_clean": True,
+            "execution_kill_switch_tested": True,
+            "execution_secrets_absent_from_repo": True,
         },
         "evidence": {
             "forward_freshness_status": "forward_freshness_passed",
@@ -34,6 +46,15 @@ def _ready_payload() -> dict[str, object]:
             "fresh_forward_evidence_available": True,
             "public_data_status": "public_data_availability_passed",
             "public_data_available": True,
+            "execution_validation_passed": True,
+            "execution_fill_count": 30,
+            "execution_fill_evidence_available": True,
+            "filled_status_clean": True,
+            "execution_provenance_clean": True,
+            "signal_provenance_clean": True,
+            "execution_slippage_p95_clean": True,
+            "execution_kill_switch_tested": True,
+            "execution_secrets_absent_from_repo": True,
         },
         "decision": {
             "status": "real_money_ready",
@@ -125,6 +146,26 @@ def test_v206_blocks_ready_summary_without_v214_public_data_availability() -> No
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_public_data_available" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_v216_execution_provenance() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    del readiness_payload["config"]["requires_execution_provenance"]
+    del readiness_payload["checks"]["execution_provenance_clean"]
+    del readiness_payload["evidence"]["execution_provenance_clean"]
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_execution_provenance_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> None:

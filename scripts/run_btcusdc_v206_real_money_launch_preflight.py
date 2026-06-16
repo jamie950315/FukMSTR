@@ -64,6 +64,47 @@ def _readiness_public_data_available(payload: dict[str, Any] | None) -> bool:
     )
 
 
+def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    if not (isinstance(config, dict) and isinstance(checks, dict) and isinstance(evidence, dict)):
+        return False
+    min_execution_fills = int(config.get("min_execution_fills", 0) or 0)
+    execution_fill_count = int(evidence.get("execution_fill_count", 0) or 0)
+    required_checks = (
+        "execution_validation_passed",
+        "execution_fill_evidence_available",
+        "filled_status_clean",
+        "execution_provenance_clean",
+        "signal_provenance_clean",
+        "execution_slippage_p95_clean",
+        "execution_kill_switch_tested",
+        "execution_secrets_absent_from_repo",
+    )
+    required_evidence = (
+        "execution_validation_passed",
+        "execution_fill_evidence_available",
+        "filled_status_clean",
+        "execution_provenance_clean",
+        "signal_provenance_clean",
+        "execution_slippage_p95_clean",
+        "execution_kill_switch_tested",
+        "execution_secrets_absent_from_repo",
+    )
+    return (
+        config.get("requires_execution_validation") is True
+        and config.get("requires_execution_provenance") is True
+        and config.get("requires_signal_provenance") is True
+        and min_execution_fills > 0
+        and execution_fill_count >= min_execution_fills
+        and all(checks.get(name) is True for name in required_checks)
+        and all(evidence.get(name) is True for name in required_evidence)
+    )
+
+
 def _dirty_runtime_paths_from_git() -> list[str]:
     try:
         result = subprocess.run(
@@ -96,6 +137,7 @@ def _preflight_payload(
     readiness = _decision(readiness_payload)
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
     public_data_available = _readiness_public_data_available(readiness_payload)
+    execution_provenance_clean = _readiness_execution_provenance_clean(readiness_payload)
     checks = {
         "readiness_gate_passed": (
             readiness.get("status") == "real_money_ready"
@@ -104,6 +146,7 @@ def _preflight_payload(
         ),
         "readiness_forward_freshness_clean": forward_freshness_clean,
         "readiness_public_data_available": public_data_available,
+        "readiness_execution_provenance_clean": execution_provenance_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -120,6 +163,7 @@ def _preflight_payload(
             "requires_v204_readiness": True,
             "requires_v212_forward_freshness": True,
             "requires_v214_public_data_availability": True,
+            "requires_v216_execution_provenance": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -129,6 +173,7 @@ def _preflight_payload(
             "readiness_failed_checks": readiness.get("failed_checks", []),
             "readiness_forward_freshness_clean": forward_freshness_clean,
             "readiness_public_data_available": public_data_available,
+            "readiness_execution_provenance_clean": execution_provenance_clean,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },
@@ -173,6 +218,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V204 readiness gate passed | {checks['readiness_gate_passed']} | status={evidence['readiness_status']}; promote_to_real_money={evidence['readiness_promote_to_real_money']}; failed_checks={evidence['readiness_failed_checks']} |",
         f"| V212 forward freshness present and passed | {checks['readiness_forward_freshness_clean']} | readiness_forward_freshness_clean={evidence['readiness_forward_freshness_clean']} |",
         f"| V214 public data present and passed | {checks['readiness_public_data_available']} | readiness_public_data_available={evidence['readiness_public_data_available']} |",
+        f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
         f"| Explicit real-money arm | {checks['explicit_real_money_arm']} | required token is documented but not persisted |",
         f"| Runtime source clean | {checks['runtime_source_clean']} | dirty_runtime_path_count={evidence['dirty_runtime_path_count']} |",
         "",
@@ -192,7 +238,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence and V214 public-data evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
+        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, and V216 execution/signal provenance evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
         "",
         "This is still not live trading code and it does not place exchange orders.",
         "",

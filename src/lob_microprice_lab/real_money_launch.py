@@ -61,6 +61,47 @@ def _readiness_public_data_available(payload: dict[str, Any] | None) -> bool:
     )
 
 
+def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    if not (isinstance(config, dict) and isinstance(checks, dict) and isinstance(evidence, dict)):
+        return False
+    min_execution_fills = int(config.get("min_execution_fills", 0) or 0)
+    execution_fill_count = int(evidence.get("execution_fill_count", 0) or 0)
+    required_checks = (
+        "execution_validation_passed",
+        "execution_fill_evidence_available",
+        "filled_status_clean",
+        "execution_provenance_clean",
+        "signal_provenance_clean",
+        "execution_slippage_p95_clean",
+        "execution_kill_switch_tested",
+        "execution_secrets_absent_from_repo",
+    )
+    required_evidence = (
+        "execution_validation_passed",
+        "execution_fill_evidence_available",
+        "filled_status_clean",
+        "execution_provenance_clean",
+        "signal_provenance_clean",
+        "execution_slippage_p95_clean",
+        "execution_kill_switch_tested",
+        "execution_secrets_absent_from_repo",
+    )
+    return (
+        config.get("requires_execution_validation") is True
+        and config.get("requires_execution_provenance") is True
+        and config.get("requires_signal_provenance") is True
+        and min_execution_fills > 0
+        and execution_fill_count >= min_execution_fills
+        and all(checks.get(name) is True for name in required_checks)
+        and all(evidence.get(name) is True for name in required_evidence)
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -102,6 +143,7 @@ def real_money_launch_preflight(
     readiness = _decision(readiness_payload)
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
     public_data_available = _readiness_public_data_available(readiness_payload)
+    execution_provenance_clean = _readiness_execution_provenance_clean(readiness_payload)
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -111,6 +153,7 @@ def real_money_launch_preflight(
         ),
         "readiness_forward_freshness_clean": forward_freshness_clean,
         "readiness_public_data_available": public_data_available,
+        "readiness_execution_provenance_clean": execution_provenance_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -127,6 +170,7 @@ def real_money_launch_preflight(
             "requires_v204_readiness": True,
             "requires_v212_forward_freshness": True,
             "requires_v214_public_data_availability": True,
+            "requires_v216_execution_provenance": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -137,6 +181,7 @@ def real_money_launch_preflight(
             "readiness_failed_checks": readiness.get("failed_checks", []),
             "readiness_forward_freshness_clean": forward_freshness_clean,
             "readiness_public_data_available": public_data_available,
+            "readiness_execution_provenance_clean": execution_provenance_clean,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },
