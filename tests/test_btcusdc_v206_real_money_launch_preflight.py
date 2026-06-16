@@ -30,6 +30,7 @@ def _ready_payload() -> dict[str, object]:
             "requires_execution_validation": True,
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
+            "requires_recent_execution_evidence": True,
             "requires_readiness_source_provenance": True,
             "requires_readiness_input_hashes": True,
         },
@@ -47,6 +48,7 @@ def _ready_payload() -> dict[str, object]:
             "execution_provenance_clean": True,
             "signal_provenance_clean": True,
             "execution_slippage_p95_clean": True,
+            "recent_execution_evidence_clean": True,
             "execution_kill_switch_tested": True,
             "execution_secrets_absent_from_repo": True,
         },
@@ -63,6 +65,9 @@ def _ready_payload() -> dict[str, object]:
             "execution_provenance_clean": True,
             "signal_provenance_clean": True,
             "execution_slippage_p95_clean": True,
+            "recent_execution_evidence_clean": True,
+            "latest_execution_timestamp": "2026-06-16T00:31:00+00:00",
+            "execution_evidence_age_days": 1.0,
             "execution_kill_switch_tested": True,
             "execution_secrets_absent_from_repo": True,
             "readiness_source_commit": "test-source-commit",
@@ -174,6 +179,26 @@ def test_v206_blocks_ready_summary_without_v216_execution_provenance() -> None:
     del readiness_payload["config"]["requires_execution_provenance"]
     del readiness_payload["checks"]["execution_provenance_clean"]
     del readiness_payload["evidence"]["execution_provenance_clean"]
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_execution_provenance_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_v220_recent_execution_evidence() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    del readiness_payload["config"]["requires_recent_execution_evidence"]
+    del readiness_payload["checks"]["recent_execution_evidence_clean"]
+    del readiness_payload["evidence"]["recent_execution_evidence_clean"]
 
     payload = module._preflight_payload(
         readiness_payload=readiness_payload,

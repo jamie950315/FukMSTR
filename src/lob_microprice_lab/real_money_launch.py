@@ -79,6 +79,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         "execution_provenance_clean",
         "signal_provenance_clean",
         "execution_slippage_p95_clean",
+        "recent_execution_evidence_clean",
         "execution_kill_switch_tested",
         "execution_secrets_absent_from_repo",
     )
@@ -89,6 +90,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         "execution_provenance_clean",
         "signal_provenance_clean",
         "execution_slippage_p95_clean",
+        "recent_execution_evidence_clean",
         "execution_kill_switch_tested",
         "execution_secrets_absent_from_repo",
     )
@@ -96,6 +98,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         config.get("requires_execution_validation") is True
         and config.get("requires_execution_provenance") is True
         and config.get("requires_signal_provenance") is True
+        and config.get("requires_recent_execution_evidence") is True
         and min_execution_fills > 0
         and execution_fill_count >= min_execution_fills
         and all(checks.get(name) is True for name in required_checks)
@@ -255,6 +258,7 @@ def real_money_launch_preflight(
             "requires_v216_execution_provenance": True,
             "requires_v218_readiness_source_provenance": True,
             "requires_v219_readiness_input_hashes": True,
+            "requires_v220_recent_execution_evidence": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },

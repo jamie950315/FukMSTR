@@ -110,6 +110,7 @@ def test_v205_passes_only_with_clean_fills_kill_switch_and_no_secrets() -> None:
         fills=fills,
         kill_switch_events=kill_switch_events,
         secret_findings=[],
+        validation_time=pd.Timestamp("2026-06-17T00:00:00Z"),
     )
 
     assert payload["decision"]["status"] == "execution_validation_passed"
@@ -117,6 +118,43 @@ def test_v205_passes_only_with_clean_fills_kill_switch_and_no_secrets() -> None:
     assert payload["decision"]["kill_switch_tested"] is True
     assert payload["decision"]["secrets_present_in_repo"] is False
     assert payload["decision"]["max_slippage_bps_p95"] == 2.0
+    assert payload["checks"]["recent_execution_evidence_clean"] is True
+
+
+def test_v205_blocks_old_execution_evidence_even_when_rows_are_clean() -> None:
+    module = _load_module()
+    fills = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-05-01T00:00:00Z", periods=32, freq="min"),
+            "symbol": ["BTCUSDC"] * 32,
+            "side": [1, -1] * 16,
+            "intended_price": [100_000.0] * 32,
+            "fill_price": [100_020.0] * 32,
+            "status": ["filled"] * 32,
+            "venue": ["binance"] * 32,
+            "execution_mode": ["paper_shadow_live"] * 32,
+            "evidence_source": ["live_capture"] * 32,
+            "capture_id": ["capture-20260501"] * 32,
+            "order_id": [f"order-{idx}" for idx in range(32)],
+            "client_order_id": [f"client-{idx}" for idx in range(32)],
+            "exchange_timestamp": pd.date_range("2026-05-01T00:00:01Z", periods=32, freq="min"),
+            "signal_id": [f"sig-{idx}" for idx in range(32)],
+            "signal_source": ["unit_realtime_signal"] * 32,
+            "market_source": ["binance-public-spot"] * 32,
+        }
+    )
+    kill_switch_events = pd.DataFrame({"event_type": ["startup", "kill_switch_tested"]})
+
+    payload = module._execution_validation_payload(
+        fills=fills,
+        kill_switch_events=kill_switch_events,
+        secret_findings=[],
+        validation_time=pd.Timestamp("2026-06-17T00:00:00Z"),
+    )
+
+    assert payload["decision"]["execution_validation_passed"] is False
+    assert "recent_execution_evidence_clean" in payload["decision"]["failed_checks"]
+    assert payload["checks"]["recent_execution_evidence_clean"] is False
 
 
 def test_v205_blocks_manual_or_backtest_signal_sources_even_with_clean_execution_rows() -> None:

@@ -82,6 +82,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         "execution_provenance_clean",
         "signal_provenance_clean",
         "execution_slippage_p95_clean",
+        "recent_execution_evidence_clean",
         "execution_kill_switch_tested",
         "execution_secrets_absent_from_repo",
     )
@@ -92,6 +93,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         "execution_provenance_clean",
         "signal_provenance_clean",
         "execution_slippage_p95_clean",
+        "recent_execution_evidence_clean",
         "execution_kill_switch_tested",
         "execution_secrets_absent_from_repo",
     )
@@ -99,6 +101,7 @@ def _readiness_execution_provenance_clean(payload: dict[str, Any] | None) -> boo
         config.get("requires_execution_validation") is True
         and config.get("requires_execution_provenance") is True
         and config.get("requires_signal_provenance") is True
+        and config.get("requires_recent_execution_evidence") is True
         and min_execution_fills > 0
         and execution_fill_count >= min_execution_fills
         and all(checks.get(name) is True for name in required_checks)
@@ -248,6 +251,7 @@ def _preflight_payload(
             "requires_v216_execution_provenance": True,
             "requires_v218_readiness_source_provenance": True,
             "requires_v219_readiness_input_hashes": True,
+            "requires_v220_recent_execution_evidence": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -308,6 +312,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
         f"| V218 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']} |",
         f"| V219 readiness input hashes present and current | {checks['readiness_input_hashes_clean']} | readiness_input_hashes_clean={evidence['readiness_input_hashes_clean']} |",
+        f"| V220 recent execution evidence present and current | {checks['readiness_execution_provenance_clean']} | included in readiness_execution_provenance_clean |",
         f"| Explicit real-money arm | {checks['explicit_real_money_arm']} | required token is documented but not persisted |",
         f"| Runtime source clean | {checks['runtime_source_clean']} | dirty_runtime_path_count={evidence['dirty_runtime_path_count']} |",
         "",
@@ -327,7 +332,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, and V219 current input evidence hashes, the operator explicitly arms real-money mode, and runtime source files are clean.",
+        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, V219 current input evidence hashes, and V220 recent execution evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
         "",
         "This is still not live trading code and it does not place exchange orders.",
         "",

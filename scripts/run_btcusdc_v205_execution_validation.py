@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import subprocess
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ DEFAULT_KILL_SWITCH_EVENTS = ROOT / "runs" / "research_v205_execution_validation
 
 MIN_EXECUTION_FILLS = 30
 MAX_SLIPPAGE_BPS_P95 = 5.0
+MAX_EXECUTION_EVIDENCE_AGE_DAYS = 7
 BASE_FILL_COLUMNS = {"timestamp", "symbol", "side", "intended_price", "fill_price", "status"}
 PROVENANCE_FILL_COLUMNS = {
     "venue",
@@ -107,12 +109,52 @@ def _signal_provenance_clean(fills: pd.DataFrame, *, fill_evidence_available: bo
     )
 
 
+def _latest_execution_timestamp(fills: pd.DataFrame) -> pd.Timestamp | None:
+    timestamps: list[pd.Timestamp] = []
+    for column in ("timestamp", "exchange_timestamp"):
+        if column not in fills.columns:
+            continue
+        values = pd.to_datetime(fills[column], utc=True, errors="coerce", format="mixed").dropna()
+        if values.empty:
+            continue
+        timestamps.append(pd.Timestamp(values.max()))
+    if not timestamps:
+        return None
+    return max(timestamps)
+
+
+def _recent_execution_evidence_clean(
+    fills: pd.DataFrame,
+    *,
+    fill_evidence_available: bool,
+    validation_time: pd.Timestamp,
+) -> tuple[bool, str | None, float | None]:
+    if not fill_evidence_available:
+        return False, None, None
+    latest = _latest_execution_timestamp(fills)
+    if latest is None:
+        return False, None, None
+    generated_at = pd.Timestamp(validation_time)
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.tz_localize("UTC")
+    else:
+        generated_at = generated_at.tz_convert("UTC")
+    age_days = (generated_at - latest).total_seconds() / 86_400.0
+    return (
+        bool(0.0 <= age_days <= MAX_EXECUTION_EVIDENCE_AGE_DAYS),
+        latest.isoformat(),
+        round(float(age_days), 6),
+    )
+
+
 def _execution_validation_payload(
     *,
     fills: pd.DataFrame,
     kill_switch_events: pd.DataFrame,
     secret_findings: list[dict[str, Any]],
+    validation_time: pd.Timestamp | None = None,
 ) -> dict[str, Any]:
+    generated_at = validation_time or pd.Timestamp.now(tz=UTC)
     fill_count = int(len(fills))
     required_columns = BASE_FILL_COLUMNS.union(PROVENANCE_FILL_COLUMNS)
     missing_columns = sorted(required_columns.difference(fills.columns))
@@ -128,6 +170,13 @@ def _execution_validation_payload(
     slippage = _slippage_bps(fills) if fill_evidence_available else pd.Series(dtype=float)
     max_slippage_bps_p95 = None if slippage.dropna().empty else round(float(slippage.quantile(0.95)), 6)
     slippage_clean = bool(max_slippage_bps_p95 is not None and max_slippage_bps_p95 <= MAX_SLIPPAGE_BPS_P95)
+    recent_execution_evidence_clean, latest_execution_timestamp, execution_evidence_age_days = (
+        _recent_execution_evidence_clean(
+            fills,
+            fill_evidence_available=fill_evidence_available,
+            validation_time=pd.Timestamp(generated_at),
+        )
+    )
     kill_switch_tested = _kill_switch_tested(kill_switch_events)
     secrets_present = bool(secret_findings)
 
@@ -137,6 +186,7 @@ def _execution_validation_payload(
         "execution_provenance_clean": execution_provenance_clean,
         "signal_provenance_clean": signal_provenance_clean,
         "slippage_p95_clean": slippage_clean,
+        "recent_execution_evidence_clean": recent_execution_evidence_clean,
         "kill_switch_tested": kill_switch_tested,
         "secrets_absent_from_repo": not secrets_present,
     }
@@ -150,15 +200,19 @@ def _execution_validation_payload(
         "config": {
             "min_execution_fills": MIN_EXECUTION_FILLS,
             "max_slippage_bps_p95": MAX_SLIPPAGE_BPS_P95,
+            "max_execution_evidence_age_days": MAX_EXECUTION_EVIDENCE_AGE_DAYS,
             "changes_strategy_thresholds": False,
             "places_live_orders": False,
         },
         "evidence": {
+            "generated_at": pd.Timestamp(generated_at).isoformat(),
             "fill_count": fill_count,
             "missing_fill_columns": missing_columns,
             "missing_base_fill_columns": missing_base_columns,
             "missing_provenance_columns": missing_provenance_columns,
             "missing_signal_provenance_columns": missing_signal_provenance_columns,
+            "latest_execution_timestamp": latest_execution_timestamp,
+            "execution_evidence_age_days": execution_evidence_age_days,
             "kill_switch_event_count": int(len(kill_switch_events)),
             "secret_finding_count": int(len(secret_findings)),
         },
@@ -242,6 +296,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Execution provenance clean | {checks['execution_provenance_clean']} | requires venue, execution mode, evidence source, capture id, order id, client order id, and exchange timestamp |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} | missing_signal_provenance_columns={evidence['missing_signal_provenance_columns']}; blocks manual, synthetic, backtest, unknown, or blank signal/market sources |",
         f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
+        f"| Recent execution evidence clean | {checks['recent_execution_evidence_clean']} | latest_execution_timestamp={evidence['latest_execution_timestamp']}; execution_evidence_age_days={evidence['execution_evidence_age_days']}; max_age_days={payload['config']['max_execution_evidence_age_days']} |",
         f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
         f"| Secrets absent from repo | {checks['secrets_absent_from_repo']} | secret_finding_count={evidence['secret_finding_count']} |",
         "",
@@ -258,6 +313,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Fill evidence count | {evidence['fill_count']} |",
         f"| Execution provenance clean | {checks['execution_provenance_clean']} |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} |",
+        f"| Recent execution evidence clean | {checks['recent_execution_evidence_clean']} |",
         f"| Kill switch tested | {decision['kill_switch_tested']} |",
         f"| Secrets present in repo | {decision['secrets_present_in_repo']} |",
         "",
