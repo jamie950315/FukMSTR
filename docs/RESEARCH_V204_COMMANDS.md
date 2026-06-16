@@ -19,6 +19,8 @@ The gate reads:
 
 - `runs/research_v195_post_goal_overfitting_audit/v195_post_goal_overfitting_audit_summary.json`
 - `runs/research_v196_forward_monitoring_gate/v196_forward_monitoring_gate_summary.json`
+- `runs/research_v212_forward_freshness_gate/v212_forward_freshness_gate_summary.json`
+- `runs/research_v214_public_data_availability_gate/v214_public_data_availability_gate_summary.json`
 - `runs/paper_v142_realtime_safe_smoke/summary.json`
 - `runs/research_v204_real_money_execution_validation/execution_validation_summary.json`
 

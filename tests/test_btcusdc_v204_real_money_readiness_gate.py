@@ -18,6 +18,16 @@ def _load_module():
     return module
 
 
+def _public_data_payload() -> dict[str, object]:
+    return {
+        "decision": {
+            "status": "public_data_availability_passed",
+            "public_data_available": True,
+            "failed_checks": [],
+        }
+    }
+
+
 def test_v204_blocks_real_money_when_overfit_or_forward_evidence_fails() -> None:
     module = _load_module()
 
@@ -54,6 +64,7 @@ def test_v204_blocks_real_money_when_overfit_or_forward_evidence_fails() -> None
                 "forward_evidence_available": False,
             }
         },
+        public_data_payload=_public_data_payload(),
     )
 
     assert payload["decision"]["status"] == "real_money_blocked"
@@ -92,6 +103,7 @@ def test_v204_requires_execution_validation_even_when_research_checks_pass() -> 
                 "forward_evidence_available": True,
             }
         },
+        public_data_payload=_public_data_payload(),
     )
 
     assert payload["decision"]["promote_to_real_money"] is False
@@ -134,11 +146,62 @@ def test_v204_requires_v212_forward_freshness_even_when_legacy_forward_gate_pass
                 "forward_evidence_available": False,
             }
         },
+        public_data_payload=_public_data_payload(),
     )
 
     assert payload["decision"]["status"] == "real_money_blocked"
     assert payload["decision"]["promote_to_real_money"] is False
     assert "forward_freshness_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v204_requires_public_data_availability_even_when_other_gates_pass() -> None:
+    module = _load_module()
+
+    payload = module._payload_for_readiness(
+        overfit_payload={
+            "decision": {
+                "status": "post_goal_overfitting_not_detected",
+                "stop_historical_optimization": False,
+            }
+        },
+        forward_payload={
+            "decision": {
+                "status": "forward_evidence_available",
+                "forward_evidence_available": True,
+                "forward_trade_count": 30,
+            }
+        },
+        realtime_summary={
+            "rejected_signals": 0,
+            "market_data_errors": 0,
+        },
+        execution_payload={
+            "decision": {
+                "status": "execution_validation_passed",
+                "kill_switch_tested": True,
+                "secrets_present_in_repo": False,
+                "max_slippage_bps_p95": 2.0,
+            }
+        },
+        forward_freshness_payload={
+            "decision": {
+                "status": "forward_freshness_passed",
+                "forward_data_current": True,
+                "forward_evidence_available": True,
+            }
+        },
+        public_data_payload={
+            "decision": {
+                "status": "public_data_missing_local_files",
+                "public_data_available": False,
+                "failed_checks": ["published_files_downloaded"],
+            }
+        },
+    )
+
+    assert payload["decision"]["status"] == "real_money_blocked"
+    assert payload["decision"]["promote_to_real_money"] is False
+    assert "public_data_available" in payload["decision"]["failed_checks"]
 
 
 def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
@@ -177,6 +240,7 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
                 "forward_evidence_available": True,
             }
         },
+        public_data_payload=_public_data_payload(),
     )
 
     assert payload["decision"]["status"] == "real_money_ready"

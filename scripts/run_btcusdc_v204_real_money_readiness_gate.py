@@ -11,6 +11,7 @@ REPORT_PATH = ROOT / "reports" / "RESEARCH_V204_BTCUSDC_REAL_MONEY_READINESS_GAT
 V195_SUMMARY = ROOT / "runs" / "research_v195_post_goal_overfitting_audit" / "v195_post_goal_overfitting_audit_summary.json"
 V196_SUMMARY = ROOT / "runs" / "research_v196_forward_monitoring_gate" / "v196_forward_monitoring_gate_summary.json"
 V212_SUMMARY = ROOT / "runs" / "research_v212_forward_freshness_gate" / "v212_forward_freshness_gate_summary.json"
+V214_SUMMARY = ROOT / "runs" / "research_v214_public_data_availability_gate" / "v214_public_data_availability_gate_summary.json"
 REALTIME_SMOKE_SUMMARY = ROOT / "runs" / "paper_v142_realtime_safe_smoke" / "summary.json"
 EXECUTION_VALIDATION_SUMMARY = (
     ROOT / "runs" / "research_v204_real_money_execution_validation" / "execution_validation_summary.json"
@@ -34,11 +35,13 @@ def _payload_for_readiness(
     realtime_summary: dict[str, Any] | None,
     execution_payload: dict[str, Any] | None,
     forward_freshness_payload: dict[str, Any] | None = None,
+    public_data_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
     execution = _decision(execution_payload)
     forward_freshness = _decision(forward_freshness_payload)
+    public_data = _decision(public_data_payload)
     realtime = realtime_summary if isinstance(realtime_summary, dict) else {}
 
     checks = {
@@ -54,6 +57,10 @@ def _payload_for_readiness(
             forward_freshness.get("status") == "forward_freshness_passed"
             and forward_freshness.get("forward_data_current") is True
             and forward_freshness.get("forward_evidence_available") is True
+        ),
+        "public_data_available": (
+            public_data.get("status") == "public_data_availability_passed"
+            and public_data.get("public_data_available") is True
         ),
         "realtime_smoke_clean": (
             int(realtime.get("rejected_signals", 0) or 0) == 0
@@ -76,6 +83,7 @@ def _payload_for_readiness(
             "requires_clean_overfit_audit": True,
             "requires_forward_evidence": True,
             "requires_forward_freshness": True,
+            "requires_public_data_availability": True,
             "requires_realtime_smoke_clean": True,
             "requires_execution_validation": True,
             "changes_strategy_thresholds": False,
@@ -86,6 +94,7 @@ def _payload_for_readiness(
             "overfit_audit": str(V195_SUMMARY),
             "forward_monitoring": str(V196_SUMMARY),
             "forward_freshness": str(V212_SUMMARY),
+            "public_data_availability": str(V214_SUMMARY),
             "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
             "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
         },
@@ -98,6 +107,9 @@ def _payload_for_readiness(
             "forward_freshness_status": forward_freshness.get("status", "missing"),
             "forward_data_current": forward_freshness.get("forward_data_current"),
             "fresh_forward_evidence_available": forward_freshness.get("forward_evidence_available"),
+            "public_data_status": public_data.get("status", "missing"),
+            "public_data_available": public_data.get("public_data_available"),
+            "public_data_failed_checks": public_data.get("failed_checks", []),
             "rejected_signals": int(realtime.get("rejected_signals", 0) or 0),
             "market_data_errors": int(realtime.get("market_data_errors", 0) or 0),
             "execution_status": execution.get("status", "missing"),
@@ -146,6 +158,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
+        f"| Public data available | {checks['public_data_available']} | public_data_status={evidence['public_data_status']}; public_data_available={evidence['public_data_available']}; failed_checks={evidence['public_data_failed_checks']} |",
         f"| Realtime smoke clean | {checks['realtime_smoke_clean']} | rejected_signals={evidence['rejected_signals']}; market_data_errors={evidence['market_data_errors']} |",
         f"| Execution validation passed | {checks['execution_validation_passed']} | execution_status={evidence['execution_status']}; kill_switch_tested={evidence['kill_switch_tested']}; secrets_present_in_repo={evidence['secrets_present_in_repo']}; max_slippage_bps_p95={evidence['max_slippage_bps_p95']} |",
         "",
@@ -161,7 +174,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, realtime smoke errors, or missing execution validation are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, or missing execution validation are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",
@@ -178,6 +191,7 @@ def run() -> dict[str, Any]:
         realtime_summary=_load_json(REALTIME_SMOKE_SUMMARY),
         execution_payload=_load_json(EXECUTION_VALIDATION_SUMMARY),
         forward_freshness_payload=_load_json(V212_SUMMARY),
+        public_data_payload=_load_json(V214_SUMMARY),
     )
     (OUT_DIR / "v204_real_money_readiness_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),

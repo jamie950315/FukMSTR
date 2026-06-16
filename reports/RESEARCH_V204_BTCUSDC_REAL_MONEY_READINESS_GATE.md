@@ -14,6 +14,7 @@
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
 | Forward freshness clean | False | forward_freshness_status=forward_fresh_no_signal; forward_data_current=True; fresh_forward_evidence_available=False |
+| Public data available | True | public_data_status=public_data_availability_passed; public_data_available=True; failed_checks=[] |
 | Realtime smoke clean | True | rejected_signals=0; market_data_errors=0 |
 | Execution validation passed | False | execution_status=execution_validation_missing_evidence; kill_switch_tested=True; secrets_present_in_repo=False; max_slippage_bps_p95=None |
 
@@ -29,6 +30,6 @@
 
 ## Interpretation
 
-V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, realtime smoke errors, or missing execution validation are present.
+V204 is an admission gate, not a new trading strategy. It blocks real-money use when historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, or missing execution validation are present.
 
 This remains research and safety infrastructure until all gates pass with current evidence.
