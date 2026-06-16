@@ -1257,6 +1257,12 @@ btcusdc-v207-real-trade-cli-preflight:
 test-btcusdc-v207:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py::test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready
 
+btcusdc-v208-kill-switch-self-test:
+	PYTHONPATH=src python scripts/run_btcusdc_v208_kill_switch_self_test.py
+
+test-btcusdc-v208:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v208_kill_switch_self_test.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

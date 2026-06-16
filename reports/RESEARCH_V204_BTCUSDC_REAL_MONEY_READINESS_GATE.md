@@ -14,7 +14,7 @@
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
 | Realtime smoke clean | True | rejected_signals=0; market_data_errors=0 |
-| Execution validation passed | False | execution_status=execution_validation_missing_evidence; kill_switch_tested=False; secrets_present_in_repo=False; max_slippage_bps_p95=None |
+| Execution validation passed | False | execution_status=execution_validation_missing_evidence; kill_switch_tested=True; secrets_present_in_repo=False; max_slippage_bps_p95=None |
 
 ## Iteration Metrics
 

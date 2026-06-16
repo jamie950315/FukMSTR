@@ -4,7 +4,7 @@
 
 - Status: `execution_validation_missing_evidence`
 - Execution validation passed: `False`
-- Failed checks: `fill_evidence_available, filled_status_clean, slippage_p95_clean, kill_switch_tested`
+- Failed checks: `fill_evidence_available, filled_status_clean, slippage_p95_clean`
 - Message: Do not use real money. Execution evidence is missing or failed.
 
 ## Inputs
@@ -19,7 +19,7 @@
 | Fill evidence available | False | fill_count=0; missing_columns=['fill_price', 'intended_price', 'side', 'status', 'symbol', 'timestamp'] |
 | Filled status clean | False | requires every fill status to be `filled` |
 | Slippage p95 clean | False | max_slippage_bps_p95=None |
-| Kill switch tested | False | kill_switch_event_count=0 |
+| Kill switch tested | True | kill_switch_event_count=1 |
 | Secrets absent from repo | True | secret_finding_count=0 |
 
 ## Iteration Metrics
@@ -33,7 +33,7 @@
 | Places live orders | No |
 | Execution validation passed | False |
 | Fill evidence count | 0 |
-| Kill switch tested | False |
+| Kill switch tested | True |
 | Secrets present in repo | False |
 
 ## Interpretation
