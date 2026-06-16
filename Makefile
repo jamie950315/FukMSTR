@@ -1282,6 +1282,12 @@ btcusdc-v211-signal-provenance-gate:
 test-btcusdc-v211:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v211_signal_provenance_gate.py tests/test_btcusdc_v205_execution_validation.py
 
+btcusdc-v212-forward-freshness-gate:
+	PYTHONPATH=src python scripts/run_btcusdc_v212_forward_freshness_gate.py
+
+test-btcusdc-v212:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v212_forward_freshness_gate.py tests/test_btcusdc_v204_real_money_readiness_gate.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

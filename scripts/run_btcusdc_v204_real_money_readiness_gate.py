@@ -10,6 +10,7 @@ OUT_DIR = ROOT / "runs" / "research_v204_real_money_readiness_gate"
 REPORT_PATH = ROOT / "reports" / "RESEARCH_V204_BTCUSDC_REAL_MONEY_READINESS_GATE.md"
 V195_SUMMARY = ROOT / "runs" / "research_v195_post_goal_overfitting_audit" / "v195_post_goal_overfitting_audit_summary.json"
 V196_SUMMARY = ROOT / "runs" / "research_v196_forward_monitoring_gate" / "v196_forward_monitoring_gate_summary.json"
+V212_SUMMARY = ROOT / "runs" / "research_v212_forward_freshness_gate" / "v212_forward_freshness_gate_summary.json"
 REALTIME_SMOKE_SUMMARY = ROOT / "runs" / "paper_v142_realtime_safe_smoke" / "summary.json"
 EXECUTION_VALIDATION_SUMMARY = (
     ROOT / "runs" / "research_v204_real_money_execution_validation" / "execution_validation_summary.json"
@@ -32,10 +33,12 @@ def _payload_for_readiness(
     forward_payload: dict[str, Any] | None,
     realtime_summary: dict[str, Any] | None,
     execution_payload: dict[str, Any] | None,
+    forward_freshness_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
     execution = _decision(execution_payload)
+    forward_freshness = _decision(forward_freshness_payload)
     realtime = realtime_summary if isinstance(realtime_summary, dict) else {}
 
     checks = {
@@ -46,6 +49,11 @@ def _payload_for_readiness(
         "forward_evidence_available": (
             forward.get("forward_evidence_available") is True
             and int(forward.get("forward_trade_count", 0) or 0) >= MIN_FORWARD_TRADES
+        ),
+        "forward_freshness_clean": (
+            forward_freshness.get("status") == "forward_freshness_passed"
+            and forward_freshness.get("forward_data_current") is True
+            and forward_freshness.get("forward_evidence_available") is True
         ),
         "realtime_smoke_clean": (
             int(realtime.get("rejected_signals", 0) or 0) == 0
@@ -67,6 +75,7 @@ def _payload_for_readiness(
             "max_execution_slippage_bps_p95": MAX_EXECUTION_SLIPPAGE_BPS_P95,
             "requires_clean_overfit_audit": True,
             "requires_forward_evidence": True,
+            "requires_forward_freshness": True,
             "requires_realtime_smoke_clean": True,
             "requires_execution_validation": True,
             "changes_strategy_thresholds": False,
@@ -76,6 +85,7 @@ def _payload_for_readiness(
         "inputs": {
             "overfit_audit": str(V195_SUMMARY),
             "forward_monitoring": str(V196_SUMMARY),
+            "forward_freshness": str(V212_SUMMARY),
             "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
             "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
         },
@@ -85,6 +95,9 @@ def _payload_for_readiness(
             "forward_status": forward.get("status", "missing"),
             "forward_evidence_available": forward.get("forward_evidence_available"),
             "forward_trade_count": int(forward.get("forward_trade_count", 0) or 0),
+            "forward_freshness_status": forward_freshness.get("status", "missing"),
+            "forward_data_current": forward_freshness.get("forward_data_current"),
+            "fresh_forward_evidence_available": forward_freshness.get("forward_evidence_available"),
             "rejected_signals": int(realtime.get("rejected_signals", 0) or 0),
             "market_data_errors": int(realtime.get("market_data_errors", 0) or 0),
             "execution_status": execution.get("status", "missing"),
@@ -132,6 +145,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "|---|---:|---|",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
+        f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
         f"| Realtime smoke clean | {checks['realtime_smoke_clean']} | rejected_signals={evidence['rejected_signals']}; market_data_errors={evidence['market_data_errors']} |",
         f"| Execution validation passed | {checks['execution_validation_passed']} | execution_status={evidence['execution_status']}; kill_switch_tested={evidence['kill_switch_tested']}; secrets_present_in_repo={evidence['secrets_present_in_repo']}; max_slippage_bps_p95={evidence['max_slippage_bps_p95']} |",
         "",
@@ -163,6 +177,7 @@ def run() -> dict[str, Any]:
         forward_payload=_load_json(V196_SUMMARY),
         realtime_summary=_load_json(REALTIME_SMOKE_SUMMARY),
         execution_payload=_load_json(EXECUTION_VALIDATION_SUMMARY),
+        forward_freshness_payload=_load_json(V212_SUMMARY),
     )
     (OUT_DIR / "v204_real_money_readiness_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),
