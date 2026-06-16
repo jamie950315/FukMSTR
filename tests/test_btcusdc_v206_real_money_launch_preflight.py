@@ -32,6 +32,7 @@ def _ready_payload() -> dict[str, object]:
             "requires_signal_provenance": True,
             "requires_recent_execution_evidence": True,
             "requires_readiness_source_provenance": True,
+            "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
         },
         "inputs": {
@@ -39,6 +40,7 @@ def _ready_payload() -> dict[str, object]:
         },
         "checks": {
             "readiness_source_provenance_clean": True,
+            "readiness_runtime_source_hash_clean": True,
             "readiness_input_hashes_clean": True,
             "forward_freshness_clean": True,
             "public_data_available": True,
@@ -71,6 +73,7 @@ def _ready_payload() -> dict[str, object]:
             "execution_kill_switch_tested": True,
             "execution_secrets_absent_from_repo": True,
             "readiness_source_commit": "test-source-commit",
+            "readiness_runtime_source_hash": "runtime-source-hash",
             "readiness_runtime_source_clean": True,
             "readiness_dirty_runtime_path_count": 0,
             "readiness_dirty_runtime_paths": [],
@@ -241,6 +244,44 @@ def test_v206_blocks_ready_summary_from_different_source_commit() -> None:
         arm_token=module.REQUIRED_ARM_TOKEN,
         dirty_runtime_paths=[],
         current_source_commit="test-source-commit",
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_source_provenance_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_allows_report_only_commit_when_runtime_source_hash_matches() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["evidence"], dict)
+    readiness_payload["evidence"]["readiness_source_commit"] = "code-commit"
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+        current_source_commit="report-commit",
+        current_runtime_source_hash="runtime-source-hash",
+        readiness_source_commit_is_ancestor=True,
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is True
+    assert payload["checks"]["readiness_source_provenance_clean"] is True
+
+
+def test_v206_blocks_report_only_commit_when_runtime_source_hash_changes() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["evidence"], dict)
+    readiness_payload["evidence"]["readiness_source_commit"] = "code-commit"
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+        current_source_commit="report-commit",
+        current_runtime_source_hash="changed-runtime-source-hash",
+        readiness_source_commit_is_ancestor=True,
     )
 
     assert payload["decision"]["allow_real_money_launch"] is False

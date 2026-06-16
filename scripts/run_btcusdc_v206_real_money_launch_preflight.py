@@ -123,7 +123,61 @@ def _current_git_commit() -> str:
     return result.stdout.strip() or "git_commit_unavailable"
 
 
-def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, current_source_commit: str) -> bool:
+def _runtime_source_hash_from_git() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "runtime_source_hash_unavailable"
+    digest = hashlib.sha256()
+    count = 0
+    for rel_path in sorted(line for line in result.stdout.splitlines() if line):
+        if not (rel_path.startswith(RUNTIME_PREFIXES) or rel_path in RUNTIME_PREFIXES):
+            continue
+        path = ROOT / rel_path
+        if not path.is_file():
+            continue
+        digest.update(rel_path.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        count += 1
+    if count == 0:
+        return "runtime_source_hash_unavailable"
+    return digest.hexdigest()
+
+
+def _source_commit_is_ancestor(source_commit: str, current_source_commit: str) -> bool:
+    if source_commit in {"", "git_commit_unavailable"} or current_source_commit in {"", "git_commit_unavailable"}:
+        return False
+    if source_commit == current_source_commit:
+        return True
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", source_commit, current_source_commit],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def _readiness_source_provenance_clean(
+    payload: dict[str, Any] | None,
+    *,
+    current_source_commit: str,
+    current_runtime_source_hash: str,
+    readiness_source_commit_is_ancestor: bool | None = None,
+) -> bool:
     if not isinstance(payload, dict):
         return False
     config = payload.get("config", {})
@@ -134,13 +188,28 @@ def _readiness_source_provenance_clean(payload: dict[str, Any] | None, *, curren
     dirty_path_count = evidence.get("readiness_dirty_runtime_path_count", 999)
     if dirty_path_count is None:
         dirty_path_count = 999
-    return (
+    source_commit = str(evidence.get("readiness_source_commit", ""))
+    source_ancestor = (
+        _source_commit_is_ancestor(source_commit, current_source_commit)
+        if readiness_source_commit_is_ancestor is None
+        else readiness_source_commit_is_ancestor
+    )
+    base_clean = (
         current_source_commit not in {"", "git_commit_unavailable"}
+        and current_runtime_source_hash not in {"", "runtime_source_hash_unavailable"}
         and config.get("requires_readiness_source_provenance") is True
+        and config.get("requires_readiness_runtime_source_hash") is True
         and checks.get("readiness_source_provenance_clean") is True
-        and evidence.get("readiness_source_commit") == current_source_commit
-        and evidence.get("readiness_runtime_source_clean") is True
+        and checks.get("readiness_runtime_source_hash_clean") is True
         and int(dirty_path_count) == 0
+        and evidence.get("readiness_runtime_source_clean") is True
+    )
+    source_commit_clean = source_commit == current_source_commit or source_ancestor
+    runtime_hash_clean = evidence.get("readiness_runtime_source_hash") == current_runtime_source_hash
+    return bool(
+        base_clean
+        and source_commit_clean
+        and runtime_hash_clean
     )
 
 
@@ -211,6 +280,8 @@ def _preflight_payload(
     arm_token: str,
     dirty_runtime_paths: list[str],
     current_source_commit: str = "test-source-commit",
+    current_runtime_source_hash: str = "runtime-source-hash",
+    readiness_source_commit_is_ancestor: bool | None = None,
 ) -> dict[str, Any]:
     readiness = _decision(readiness_payload)
     forward_freshness_clean = _readiness_forward_freshness_clean(readiness_payload)
@@ -219,6 +290,8 @@ def _preflight_payload(
     source_provenance_clean = _readiness_source_provenance_clean(
         readiness_payload,
         current_source_commit=current_source_commit,
+        current_runtime_source_hash=current_runtime_source_hash,
+        readiness_source_commit_is_ancestor=readiness_source_commit_is_ancestor,
     )
     input_hashes_clean = _readiness_input_hashes_clean(readiness_payload)
     checks = {
@@ -252,6 +325,7 @@ def _preflight_payload(
             "requires_v218_readiness_source_provenance": True,
             "requires_v219_readiness_input_hashes": True,
             "requires_v220_recent_execution_evidence": True,
+            "requires_v221_runtime_source_hash": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -265,6 +339,7 @@ def _preflight_payload(
             "readiness_source_provenance_clean": source_provenance_clean,
             "readiness_input_hashes_clean": input_hashes_clean,
             "current_source_commit": current_source_commit,
+            "current_runtime_source_hash": current_runtime_source_hash,
             "dirty_runtime_paths": dirty_runtime_paths,
             "dirty_runtime_path_count": len(dirty_runtime_paths),
         },
@@ -310,7 +385,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V212 forward freshness present and passed | {checks['readiness_forward_freshness_clean']} | readiness_forward_freshness_clean={evidence['readiness_forward_freshness_clean']} |",
         f"| V214 public data present and passed | {checks['readiness_public_data_available']} | readiness_public_data_available={evidence['readiness_public_data_available']} |",
         f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
-        f"| V218 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']} |",
+        f"| V218/V221 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']}; current_runtime_source_hash={evidence['current_runtime_source_hash']} |",
         f"| V219 readiness input hashes present and current | {checks['readiness_input_hashes_clean']} | readiness_input_hashes_clean={evidence['readiness_input_hashes_clean']} |",
         f"| V220 recent execution evidence present and current | {checks['readiness_execution_provenance_clean']} | included in readiness_execution_provenance_clean |",
         f"| Explicit real-money arm | {checks['explicit_real_money_arm']} | required token is documented but not persisted |",
@@ -332,7 +407,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218 current-source provenance evidence, V219 current input evidence hashes, and V220 recent execution evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
+        "V206 is a final launch preflight. It prevents any real-money path from being treated as launchable unless V204 is already ready with V212 forward freshness evidence, V214 public-data evidence, V216 execution/signal provenance evidence, V218/V221 current runtime-source provenance evidence, V219 current input evidence hashes, and V220 recent execution evidence, the operator explicitly arms real-money mode, and runtime source files are clean.",
         "",
         "This is still not live trading code and it does not place exchange orders.",
         "",
@@ -348,6 +423,7 @@ def run(*, arm_token: str = "") -> dict[str, Any]:
         arm_token=arm_token,
         dirty_runtime_paths=_dirty_runtime_paths_from_git(),
         current_source_commit=_current_git_commit(),
+        current_runtime_source_hash=_runtime_source_hash_from_git(),
     )
     (OUT_DIR / "v206_real_money_launch_preflight_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),

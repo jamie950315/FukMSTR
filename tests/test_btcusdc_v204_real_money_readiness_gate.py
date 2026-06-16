@@ -331,8 +331,11 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
         },
         public_data_payload=_public_data_payload(),
         readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
     )
 
     assert payload["decision"]["status"] == "real_money_ready"
     assert payload["decision"]["promote_to_real_money"] is True
     assert payload["decision"]["failed_checks"] == []
+    assert payload["config"]["requires_readiness_runtime_source_hash"] is True
+    assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
