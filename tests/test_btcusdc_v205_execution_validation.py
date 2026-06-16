@@ -57,6 +57,31 @@ def test_v205_blocks_when_kill_switch_was_not_tested() -> None:
     assert "kill_switch_tested" in payload["decision"]["failed_checks"]
 
 
+def test_v205_blocks_clean_looking_fills_without_execution_provenance() -> None:
+    module = _load_module()
+    fills = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-06-16T00:00:00Z", periods=32, freq="min"),
+            "symbol": ["BTCUSDC"] * 32,
+            "side": [1, -1] * 16,
+            "intended_price": [100_000.0] * 32,
+            "fill_price": [100_020.0] * 32,
+            "status": ["filled"] * 32,
+        }
+    )
+    kill_switch_events = pd.DataFrame({"event_type": ["kill_switch_tested"]})
+
+    payload = module._execution_validation_payload(
+        fills=fills,
+        kill_switch_events=kill_switch_events,
+        secret_findings=[],
+    )
+
+    assert payload["decision"]["execution_validation_passed"] is False
+    assert "execution_provenance_clean" in payload["decision"]["failed_checks"]
+    assert payload["checks"]["execution_provenance_clean"] is False
+
+
 def test_v205_passes_only_with_clean_fills_kill_switch_and_no_secrets() -> None:
     module = _load_module()
     fills = pd.DataFrame(
@@ -67,6 +92,13 @@ def test_v205_passes_only_with_clean_fills_kill_switch_and_no_secrets() -> None:
             "intended_price": [100_000.0] * 32,
             "fill_price": [100_020.0] * 32,
             "status": ["filled"] * 32,
+            "venue": ["binance"] * 32,
+            "execution_mode": ["paper_shadow_live"] * 32,
+            "evidence_source": ["live_capture"] * 32,
+            "capture_id": ["capture-20260616"] * 32,
+            "order_id": [f"order-{idx}" for idx in range(32)],
+            "client_order_id": [f"client-{idx}" for idx in range(32)],
+            "exchange_timestamp": pd.date_range("2026-06-16T00:00:01Z", periods=32, freq="min"),
         }
     )
     kill_switch_events = pd.DataFrame({"event_type": ["startup", "kill_switch_tested"]})

@@ -18,6 +18,18 @@ DEFAULT_KILL_SWITCH_EVENTS = ROOT / "runs" / "research_v205_execution_validation
 
 MIN_EXECUTION_FILLS = 30
 MAX_SLIPPAGE_BPS_P95 = 5.0
+BASE_FILL_COLUMNS = {"timestamp", "symbol", "side", "intended_price", "fill_price", "status"}
+PROVENANCE_FILL_COLUMNS = {
+    "venue",
+    "execution_mode",
+    "evidence_source",
+    "capture_id",
+    "order_id",
+    "client_order_id",
+    "exchange_timestamp",
+}
+ALLOWED_EXECUTION_MODES = {"paper_shadow_live", "exchange_testnet", "exchange_live_min_size"}
+BLOCKED_EVIDENCE_SOURCES = {"", "unknown", "synthetic", "backtest", "manual"}
 SECRET_ASSIGNMENT = re.compile(
     r"(?i)\\b(binance(_api)?_(key|secret)|api[_-]?secret|secret[_-]?key|private[_-]?key|aws_secret_access_key)\\b\\s*[:=]\\s*['\\\"]?([^'\\\"\\s#]+)"
 )
@@ -52,6 +64,29 @@ def _kill_switch_tested(events: pd.DataFrame) -> bool:
     return bool(event_types.eq("kill_switch_tested").any())
 
 
+def _non_empty_string_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series([False] * len(frame), index=frame.index)
+    return frame[column].astype(str).str.strip().ne("") & frame[column].notna()
+
+
+def _execution_provenance_clean(fills: pd.DataFrame, *, fill_evidence_available: bool) -> bool:
+    if not fill_evidence_available:
+        return False
+    missing = PROVENANCE_FILL_COLUMNS.difference(fills.columns)
+    if missing:
+        return False
+    execution_modes = fills["execution_mode"].astype(str).str.strip().str.lower()
+    evidence_sources = fills["evidence_source"].astype(str).str.strip().str.lower()
+    required_non_empty = ["venue", "capture_id", "order_id", "client_order_id", "exchange_timestamp"]
+    non_empty = [_non_empty_string_column(fills, column).all() for column in required_non_empty]
+    return bool(
+        execution_modes.isin(ALLOWED_EXECUTION_MODES).all()
+        and not evidence_sources.isin(BLOCKED_EVIDENCE_SOURCES).any()
+        and all(non_empty)
+    )
+
+
 def _execution_validation_payload(
     *,
     fills: pd.DataFrame,
@@ -59,12 +94,15 @@ def _execution_validation_payload(
     secret_findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     fill_count = int(len(fills))
-    required_columns = {"timestamp", "symbol", "side", "intended_price", "fill_price", "status"}
+    required_columns = BASE_FILL_COLUMNS.union(PROVENANCE_FILL_COLUMNS)
     missing_columns = sorted(required_columns.difference(fills.columns))
+    missing_base_columns = sorted(BASE_FILL_COLUMNS.difference(fills.columns))
+    missing_provenance_columns = sorted(PROVENANCE_FILL_COLUMNS.difference(fills.columns))
     fill_evidence_available = fill_count >= MIN_EXECUTION_FILLS and not missing_columns
 
     statuses = fills["status"].astype(str).str.strip().str.lower() if "status" in fills.columns else pd.Series(dtype=str)
     filled_status_clean = bool(fill_evidence_available and statuses.eq("filled").all())
+    execution_provenance_clean = _execution_provenance_clean(fills, fill_evidence_available=fill_evidence_available)
     slippage = _slippage_bps(fills) if fill_evidence_available else pd.Series(dtype=float)
     max_slippage_bps_p95 = None if slippage.dropna().empty else round(float(slippage.quantile(0.95)), 6)
     slippage_clean = bool(max_slippage_bps_p95 is not None and max_slippage_bps_p95 <= MAX_SLIPPAGE_BPS_P95)
@@ -74,6 +112,7 @@ def _execution_validation_payload(
     checks = {
         "fill_evidence_available": fill_evidence_available,
         "filled_status_clean": filled_status_clean,
+        "execution_provenance_clean": execution_provenance_clean,
         "slippage_p95_clean": slippage_clean,
         "kill_switch_tested": kill_switch_tested,
         "secrets_absent_from_repo": not secrets_present,
@@ -94,6 +133,8 @@ def _execution_validation_payload(
         "evidence": {
             "fill_count": fill_count,
             "missing_fill_columns": missing_columns,
+            "missing_base_fill_columns": missing_base_columns,
+            "missing_provenance_columns": missing_provenance_columns,
             "kill_switch_event_count": int(len(kill_switch_events)),
             "secret_finding_count": int(len(secret_findings)),
         },
@@ -172,8 +213,9 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         "",
         "| Check | Passed | Evidence |",
         "|---|---:|---|",
-        f"| Fill evidence available | {checks['fill_evidence_available']} | fill_count={evidence['fill_count']}; missing_columns={evidence['missing_fill_columns']} |",
+        f"| Fill evidence available | {checks['fill_evidence_available']} | fill_count={evidence['fill_count']}; missing_base_columns={evidence['missing_base_fill_columns']}; missing_provenance_columns={evidence['missing_provenance_columns']} |",
         f"| Filled status clean | {checks['filled_status_clean']} | requires every fill status to be `filled` |",
+        f"| Execution provenance clean | {checks['execution_provenance_clean']} | requires venue, execution mode, evidence source, capture id, order id, client order id, and exchange timestamp |",
         f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
         f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
         f"| Secrets absent from repo | {checks['secrets_absent_from_repo']} | secret_finding_count={evidence['secret_finding_count']} |",
@@ -189,6 +231,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         "| Places live orders | No |",
         f"| Execution validation passed | {decision['execution_validation_passed']} |",
         f"| Fill evidence count | {evidence['fill_count']} |",
+        f"| Execution provenance clean | {checks['execution_provenance_clean']} |",
         f"| Kill switch tested | {decision['kill_switch_tested']} |",
         f"| Secrets present in repo | {decision['secrets_present_in_repo']} |",
         "",
@@ -196,7 +239,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         "",
         "V205 does not place live orders and does not change the trading strategy. It only validates whether external execution evidence is strong enough for V204 to consider the execution gate.",
         "",
-        "This remains blocked for real-money use until clean fill evidence, a tested kill switch, and a clean secret scan are all present.",
+        "This remains blocked for real-money use until clean fill evidence, order-level execution provenance, a tested kill switch, and a clean secret scan are all present.",
         "",
     ]
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
