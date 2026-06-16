@@ -11,7 +11,8 @@
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| Readiness source provenance clean | True | source_commit=0894fbf4e2b3fc2722f7b4ca904ff8f208fc7cbf; dirty_runtime_path_count=0 |
+| Readiness source provenance clean | True | source_commit=963e2c54c7f22c352b7a4e9b30d513412c350a6b; dirty_runtime_path_count=0 |
+| Readiness runtime source hash clean | True | runtime_source_hash=0b2006e2f284c03798946c1b6bdc6c5bf997363c09085426c9239562e2d87b84 |
 | Readiness input hashes clean | True | input_hash_count=6 |
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
@@ -40,6 +41,6 @@
 
 ## Interpretation
 
-V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, or missing execution/signal provenance are present.
+V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, or missing execution/signal provenance are present.
 
 This remains research and safety infrastructure until all gates pass with current evidence.
