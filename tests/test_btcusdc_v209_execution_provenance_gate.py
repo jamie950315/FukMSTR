@@ -51,3 +51,4 @@ def test_v209_blocks_fill_audit_without_execution_provenance(tmp_path: Path) -> 
     assert payload["config"]["changes_strategy_thresholds"] is False
     assert payload["config"]["places_live_orders"] is False
     assert "Strategy thresholds changed | No" in report_path.read_text(encoding="utf-8")
+    assert "Signal provenance clean" in report_path.read_text(encoding="utf-8")

@@ -28,8 +28,11 @@ PROVENANCE_FILL_COLUMNS = {
     "client_order_id",
     "exchange_timestamp",
 }
+SIGNAL_PROVENANCE_COLUMNS = {"signal_id", "signal_source", "market_source"}
 ALLOWED_EXECUTION_MODES = {"paper_shadow_live", "exchange_testnet", "exchange_live_min_size"}
 BLOCKED_EVIDENCE_SOURCES = {"", "unknown", "synthetic", "backtest", "manual"}
+BLOCKED_SIGNAL_SOURCES = {"", "unknown", "synthetic", "backtest", "manual"}
+BLOCKED_MARKET_SOURCES = {"", "unknown", "synthetic", "backtest", "manual"}
 SECRET_ASSIGNMENT = re.compile(
     r"(?i)\\b(binance(_api)?_(key|secret)|api[_-]?secret|secret[_-]?key|private[_-]?key|aws_secret_access_key)\\b\\s*[:=]\\s*['\\\"]?([^'\\\"\\s#]+)"
 )
@@ -87,6 +90,23 @@ def _execution_provenance_clean(fills: pd.DataFrame, *, fill_evidence_available:
     )
 
 
+def _signal_provenance_clean(fills: pd.DataFrame, *, fill_evidence_available: bool) -> bool:
+    if not fill_evidence_available:
+        return False
+    missing = SIGNAL_PROVENANCE_COLUMNS.difference(fills.columns)
+    if missing:
+        return False
+    required_non_empty = ["signal_id", "signal_source", "market_source"]
+    non_empty = [_non_empty_string_column(fills, column).all() for column in required_non_empty]
+    signal_sources = fills["signal_source"].astype(str).str.strip().str.lower()
+    market_sources = fills["market_source"].astype(str).str.strip().str.lower()
+    return bool(
+        all(non_empty)
+        and not signal_sources.isin(BLOCKED_SIGNAL_SOURCES).any()
+        and not market_sources.isin(BLOCKED_MARKET_SOURCES).any()
+    )
+
+
 def _execution_validation_payload(
     *,
     fills: pd.DataFrame,
@@ -98,11 +118,13 @@ def _execution_validation_payload(
     missing_columns = sorted(required_columns.difference(fills.columns))
     missing_base_columns = sorted(BASE_FILL_COLUMNS.difference(fills.columns))
     missing_provenance_columns = sorted(PROVENANCE_FILL_COLUMNS.difference(fills.columns))
+    missing_signal_provenance_columns = sorted(SIGNAL_PROVENANCE_COLUMNS.difference(fills.columns))
     fill_evidence_available = fill_count >= MIN_EXECUTION_FILLS and not missing_columns
 
     statuses = fills["status"].astype(str).str.strip().str.lower() if "status" in fills.columns else pd.Series(dtype=str)
     filled_status_clean = bool(fill_evidence_available and statuses.eq("filled").all())
     execution_provenance_clean = _execution_provenance_clean(fills, fill_evidence_available=fill_evidence_available)
+    signal_provenance_clean = _signal_provenance_clean(fills, fill_evidence_available=fill_evidence_available)
     slippage = _slippage_bps(fills) if fill_evidence_available else pd.Series(dtype=float)
     max_slippage_bps_p95 = None if slippage.dropna().empty else round(float(slippage.quantile(0.95)), 6)
     slippage_clean = bool(max_slippage_bps_p95 is not None and max_slippage_bps_p95 <= MAX_SLIPPAGE_BPS_P95)
@@ -113,6 +135,7 @@ def _execution_validation_payload(
         "fill_evidence_available": fill_evidence_available,
         "filled_status_clean": filled_status_clean,
         "execution_provenance_clean": execution_provenance_clean,
+        "signal_provenance_clean": signal_provenance_clean,
         "slippage_p95_clean": slippage_clean,
         "kill_switch_tested": kill_switch_tested,
         "secrets_absent_from_repo": not secrets_present,
@@ -135,6 +158,7 @@ def _execution_validation_payload(
             "missing_fill_columns": missing_columns,
             "missing_base_fill_columns": missing_base_columns,
             "missing_provenance_columns": missing_provenance_columns,
+            "missing_signal_provenance_columns": missing_signal_provenance_columns,
             "kill_switch_event_count": int(len(kill_switch_events)),
             "secret_finding_count": int(len(secret_findings)),
         },
@@ -216,6 +240,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Fill evidence available | {checks['fill_evidence_available']} | fill_count={evidence['fill_count']}; missing_base_columns={evidence['missing_base_fill_columns']}; missing_provenance_columns={evidence['missing_provenance_columns']} |",
         f"| Filled status clean | {checks['filled_status_clean']} | requires every fill status to be `filled` |",
         f"| Execution provenance clean | {checks['execution_provenance_clean']} | requires venue, execution mode, evidence source, capture id, order id, client order id, and exchange timestamp |",
+        f"| Signal provenance clean | {checks['signal_provenance_clean']} | missing_signal_provenance_columns={evidence['missing_signal_provenance_columns']}; blocks manual, synthetic, backtest, unknown, or blank signal/market sources |",
         f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
         f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
         f"| Secrets absent from repo | {checks['secrets_absent_from_repo']} | secret_finding_count={evidence['secret_finding_count']} |",
@@ -232,6 +257,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Execution validation passed | {decision['execution_validation_passed']} |",
         f"| Fill evidence count | {evidence['fill_count']} |",
         f"| Execution provenance clean | {checks['execution_provenance_clean']} |",
+        f"| Signal provenance clean | {checks['signal_provenance_clean']} |",
         f"| Kill switch tested | {decision['kill_switch_tested']} |",
         f"| Secrets present in repo | {decision['secrets_present_in_repo']} |",
         "",

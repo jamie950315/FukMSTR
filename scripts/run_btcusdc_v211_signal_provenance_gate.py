@@ -9,8 +9,8 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "runs" / "research_v209_execution_provenance_gate"
-REPORT_PATH = ROOT / "reports" / "RESEARCH_V209_BTCUSDC_EXECUTION_PROVENANCE_GATE.md"
+OUT_DIR = ROOT / "runs" / "research_v211_signal_provenance_gate"
+REPORT_PATH = ROOT / "reports" / "RESEARCH_V211_BTCUSDC_SIGNAL_PROVENANCE_GATE.md"
 V205_SCRIPT = ROOT / "scripts" / "run_btcusdc_v205_execution_validation.py"
 
 
@@ -26,11 +26,11 @@ def _load_v205_module():
 
 def _status_from_v205(v205_payload: dict[str, Any]) -> str:
     failed = set(v205_payload["decision"]["failed_checks"])
-    if "execution_provenance_clean" in failed:
-        return "execution_provenance_blocked"
-    if v205_payload["decision"]["execution_validation_passed"] is True:
-        return "execution_provenance_passed"
-    return "execution_provenance_waiting_for_fill_evidence"
+    if "signal_provenance_clean" in failed:
+        return "signal_provenance_blocked"
+    if v205_payload["checks"].get("signal_provenance_clean") is True:
+        return "signal_provenance_passed"
+    return "signal_provenance_waiting_for_fill_evidence"
 
 
 def _write_report(payload: dict[str, Any], *, report_path: Path) -> None:
@@ -38,7 +38,7 @@ def _write_report(payload: dict[str, Any], *, report_path: Path) -> None:
     evidence = payload["evidence"]
     checks = payload["checks"]
     lines = [
-        "# Research V209 BTCUSDC Execution Provenance Gate",
+        "# Research V211 BTCUSDC Signal Provenance Gate",
         "",
         "## Decision",
         "",
@@ -54,29 +54,24 @@ def _write_report(payload: dict[str, Any], *, report_path: Path) -> None:
         f"| Fill evidence available | {checks['fill_evidence_available']} | fill_count={evidence['fill_count']}; missing_base_columns={evidence['missing_base_fill_columns']} |",
         f"| Execution provenance clean | {checks['execution_provenance_clean']} | missing_provenance_columns={evidence['missing_provenance_columns']} |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} | missing_signal_provenance_columns={evidence['missing_signal_provenance_columns']} |",
-        f"| Filled status clean | {checks['filled_status_clean']} | requires every fill status to be `filled` |",
-        f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
-        f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
-        f"| Secrets absent from repo | {checks['secrets_absent_from_repo']} | secret_finding_count={evidence['secret_finding_count']} |",
         "",
         "## Iteration Metrics",
         "",
-        "| Metric | V209 |",
+        "| Metric | V211 |",
         "|---|---:|",
         "| Strategy thresholds changed | No |",
         "| Entry/exit logic changed | No |",
         "| Leverage logic changed | No |",
         "| New backtest return improvement claimed | No |",
         "| Places live orders | No |",
-        f"| Execution provenance clean | {checks['execution_provenance_clean']} |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} |",
         f"| Promote to real money | {decision['promote_to_real_money']} |",
         "",
         "## Interpretation",
         "",
-        "V209 tightens execution evidence admission. Clean-looking fills are not enough; real-money readiness now requires order-level provenance and signal provenance.",
+        "V211 prevents manual, synthetic, backtest, unknown, or blank signal/market sources from satisfying the execution-evidence path. Clean order-looking rows are not enough unless the signal source is also causal and auditable.",
         "",
-        "This does not create trades or claim new profitability. It prevents synthetic or backtest-like fill rows from satisfying the real-money execution gate.",
+        "This does not create trades, tune thresholds, or claim new profitability. Real-money use remains blocked until V204 passes with current forward and execution evidence.",
         "",
     ]
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,16 +94,19 @@ def run(
         secret_findings=v205._scan_repo_for_secret_findings(),
     )
     status = _status_from_v205(v205_payload)
-    passed = status == "execution_provenance_passed"
+    failed_checks = []
+    if status != "signal_provenance_passed":
+        failed_checks.append("signal_provenance_clean")
     payload = {
-        "version": "v209_btcusdc_execution_provenance_gate",
+        "version": "v211_btcusdc_signal_provenance_gate",
         "config": {
             "changes_strategy_thresholds": False,
             "changes_entry_exit_logic": False,
             "changes_leverage_logic": False,
             "places_live_orders": False,
-            "required_provenance_columns": sorted(v205.PROVENANCE_FILL_COLUMNS),
-            "allowed_execution_modes": sorted(v205.ALLOWED_EXECUTION_MODES),
+            "required_signal_provenance_columns": sorted(v205.SIGNAL_PROVENANCE_COLUMNS),
+            "blocked_signal_sources": sorted(v205.BLOCKED_SIGNAL_SOURCES),
+            "blocked_market_sources": sorted(v205.BLOCKED_MARKET_SOURCES),
         },
         "inputs": {
             "fill_audit_csv": str(fills_path),
@@ -118,19 +116,18 @@ def run(
         "checks": v205_payload["checks"],
         "decision": {
             "status": status,
-            "promote_to_real_money": passed,
-            "failed_checks": v205_payload["decision"]["failed_checks"],
-            "max_slippage_bps_p95": v205_payload["decision"]["max_slippage_bps_p95"],
+            "promote_to_real_money": False,
+            "failed_checks": failed_checks,
             "message": (
-                "Execution evidence provenance is clean."
-                if passed
-                else "Do not use real money. Execution evidence provenance is missing or failed."
+                "Signal provenance is clean, but V211 alone does not promote real-money use."
+                if status == "signal_provenance_passed"
+                else "Do not use real money. Signal provenance is missing or failed."
             ),
         },
         "v205_decision": v205_payload["decision"],
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "v209_execution_provenance_gate_summary.json").write_text(
+    (out_dir / "v211_signal_provenance_gate_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
@@ -139,7 +136,7 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate BTCUSDC execution evidence provenance for real-money readiness.")
+    parser = argparse.ArgumentParser(description="Validate BTCUSDC signal provenance for execution evidence.")
     parser.add_argument("--fills", default=None)
     parser.add_argument("--kill-switch-events", default=None)
     parser.add_argument("--out", default=str(OUT_DIR))

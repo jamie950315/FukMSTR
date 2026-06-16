@@ -4,7 +4,7 @@
 
 - Status: `execution_validation_missing_evidence`
 - Execution validation passed: `False`
-- Failed checks: `fill_evidence_available, filled_status_clean, execution_provenance_clean, slippage_p95_clean`
+- Failed checks: `fill_evidence_available, filled_status_clean, execution_provenance_clean, signal_provenance_clean, slippage_p95_clean`
 - Message: Do not use real money. Execution evidence is missing or failed.
 
 ## Inputs
@@ -19,6 +19,7 @@
 | Fill evidence available | False | fill_count=0; missing_base_columns=[]; missing_provenance_columns=[] |
 | Filled status clean | False | requires every fill status to be `filled` |
 | Execution provenance clean | False | requires venue, execution mode, evidence source, capture id, order id, client order id, and exchange timestamp |
+| Signal provenance clean | False | missing_signal_provenance_columns=[]; blocks manual, synthetic, backtest, unknown, or blank signal/market sources |
 | Slippage p95 clean | False | max_slippage_bps_p95=None |
 | Kill switch tested | True | kill_switch_event_count=1 |
 | Secrets absent from repo | True | secret_finding_count=0 |
@@ -35,6 +36,7 @@
 | Execution validation passed | False |
 | Fill evidence count | 0 |
 | Execution provenance clean | False |
+| Signal provenance clean | False |
 | Kill switch tested | True |
 | Secrets present in repo | False |
 
