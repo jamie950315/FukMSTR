@@ -11,7 +11,7 @@
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'execution_validation_passed'] |
+| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'execution_validation_passed', 'execution_fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'execution_slippage_p95_clean'] |
 | V212 forward freshness present and passed | False | readiness_forward_freshness_clean=False |
 | V214 public data present and passed | True | readiness_public_data_available=True |
 | Explicit real-money arm | False | required token is documented but not persisted |
