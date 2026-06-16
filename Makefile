@@ -1269,6 +1269,13 @@ btcusdc-v209-execution-provenance-gate:
 test-btcusdc-v209:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v209_execution_provenance_gate.py
 
+btcusdc-v210-paper-shadow-fill-capture:
+	test -n "$(SIGNAL_CSV)"
+	PYTHONPATH=src python scripts/run_btcusdc_v210_paper_shadow_fill_capture.py --signal-csv "$(SIGNAL_CSV)" $(if $(PRICE_CSV),--price-csv "$(PRICE_CSV)") --out runs/research_v210_paper_shadow_fill_capture --ticks "$(or $(TICKS),0)" --capture-id "$(or $(CAPTURE_ID),paper-shadow-capture)"
+
+test-btcusdc-v210:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v210_paper_shadow_fill_capture.py
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

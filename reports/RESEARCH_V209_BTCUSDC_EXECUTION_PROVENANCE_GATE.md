@@ -11,8 +11,8 @@
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| Fill evidence available | False | fill_count=0; missing_base_columns=['fill_price', 'intended_price', 'side', 'status', 'symbol', 'timestamp'] |
-| Execution provenance clean | False | missing_provenance_columns=['capture_id', 'client_order_id', 'evidence_source', 'exchange_timestamp', 'execution_mode', 'order_id', 'venue'] |
+| Fill evidence available | False | fill_count=0; missing_base_columns=[] |
+| Execution provenance clean | False | missing_provenance_columns=[] |
 | Filled status clean | False | requires every fill status to be `filled` |
 | Slippage p95 clean | False | max_slippage_bps_p95=None |
 | Kill switch tested | True | kill_switch_event_count=1 |

@@ -225,14 +225,22 @@ class CsvSignalProvider:
             raise ValueError("signal CSV must contain side or signal column")
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
         available_col = "available_at" if "available_at" in frame.columns else "generated_at" if "generated_at" in frame.columns else None
-        frame["available_at"] = pd.to_datetime(frame[available_col], utc=True, errors="coerce") if available_col else pd.NaT
+        frame["available_at"] = (
+            pd.to_datetime(frame[available_col], utc=True, errors="coerce")
+            if available_col
+            else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+        )
         side_col = "side" if "side" in frame.columns else "signal"
         frame["side"] = pd.to_numeric(frame[side_col], errors="coerce").fillna(0)
         frame["symbol"] = frame.get("symbol", default_symbol)
         frame["source"] = frame.get("source", "manual")
         frame["leg"] = frame.get("leg", "base")
         frame["direction_probability"] = pd.to_numeric(frame.get("direction_probability"), errors="coerce") if "direction_probability" in frame.columns else pd.NA
-        frame["horizon_minutes"] = pd.to_numeric(frame.get("horizon_minutes", default_horizon_minutes), errors="coerce").fillna(default_horizon_minutes).astype(int)
+        horizon_values = frame["horizon_minutes"] if "horizon_minutes" in frame.columns else pd.Series(
+            [default_horizon_minutes] * len(frame),
+            index=frame.index,
+        )
+        frame["horizon_minutes"] = pd.to_numeric(horizon_values, errors="coerce").fillna(default_horizon_minutes).astype(int)
         if "signal_id" not in frame.columns:
             frame["signal_id"] = [f"csv-{i}" for i in range(len(frame))]
         self.frame = frame.sort_values("timestamp").reset_index(drop=True)
