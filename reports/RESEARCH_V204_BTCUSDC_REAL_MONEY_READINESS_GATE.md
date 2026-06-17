@@ -11,8 +11,8 @@
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| Readiness source provenance clean | True | source_commit=f4f73a8f3b93eb290c88a26108e395d11f94a3ad; dirty_runtime_path_count=0 |
-| Readiness runtime source hash clean | True | runtime_source_hash=803e991afd22b2e6dd50d421ff195eac9f88dfb6e793eaa34dc933eb0b5cd493 |
+| Readiness source provenance clean | True | source_commit=recorded_in_summary_json; dirty_runtime_path_count=0 |
+| Readiness runtime source hash clean | True | runtime_source_hash=c53872f4f32f728f65c8c12e69d83f7e5677d11412684aaa5d171755b641a174 |
 | Readiness input hashes clean | True | input_hash_count=6 |
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |

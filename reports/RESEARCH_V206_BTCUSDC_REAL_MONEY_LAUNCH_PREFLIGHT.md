@@ -15,7 +15,7 @@
 | V212 forward freshness present and passed | False | readiness_forward_freshness_clean=False |
 | V214 public data present and passed | True | readiness_public_data_available=True |
 | V216 execution provenance present and passed | False | readiness_execution_provenance_clean=False |
-| V218/V221 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=f4f73a8f3b93eb290c88a26108e395d11f94a3ad; current_runtime_source_hash=803e991afd22b2e6dd50d421ff195eac9f88dfb6e793eaa34dc933eb0b5cd493 |
+| V218/V221 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=recorded_in_summary_json; current_runtime_source_hash=c53872f4f32f728f65c8c12e69d83f7e5677d11412684aaa5d171755b641a174 |
 | V219 readiness input hashes present and current | True | readiness_input_hashes_clean=True |
 | V220 recent execution evidence present and current | False | included in readiness_execution_provenance_clean |
 | V222 paper-shadow capture summary present and current | False | included in readiness_execution_provenance_clean |
