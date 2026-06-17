@@ -26,7 +26,7 @@ PYTHONPATH=src python -m lob_microprice_lab.cli real-trade-btcusdc \
 
 Current expected result is blocked because V204 is not `real_money_ready`.
 
-The CLI also re-checks the V223 fixed strategy manifest hash recorded by V204.
+The CLI also re-checks the V223 fixed strategy manifest hash and V224 forward-freeze manifest hash recorded by V204.
 
 ## Focused Test
 

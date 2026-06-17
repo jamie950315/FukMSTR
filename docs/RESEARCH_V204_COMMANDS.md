@@ -24,6 +24,7 @@ The gate reads:
 - `runs/paper_v142_realtime_safe_smoke/summary.json`
 - `runs/research_v204_real_money_execution_validation/execution_validation_summary.json`
 - `configs/btcusdc_v223_promoted_strategy_manifest.json`
+- `configs/btcusdc_v224_forward_freeze_manifest.json`
 
 Current expected behavior is to block real-money promotion unless all checks
 pass with current evidence.

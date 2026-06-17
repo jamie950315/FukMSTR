@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -13,11 +14,61 @@ import run_btcusdc_v194_long_rescue_premium_discount_stepup as v194
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "research_v196_forward_monitoring_gate"
 REPORT_PATH = ROOT / "reports" / "RESEARCH_V196_BTCUSDC_FORWARD_MONITORING_GATE.md"
+DEFAULT_FORWARD_FREEZE_MANIFEST = ROOT / "configs" / "btcusdc_v224_forward_freeze_manifest.json"
 V194_ACCOUNT_PATH = (
     ROOT / "runs" / "research_v194_long_rescue_premium_discount_stepup" / "v194_selected_account_path.csv"
 )
 FREEZE_TIMESTAMP = pd.Timestamp("2026-06-09T16:40:00Z")
 MIN_FORWARD_TRADES = 5
+
+
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_json(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _forward_freeze_manifest_clean(
+    *,
+    manifest_path: str | None,
+    manifest_hash: str | None,
+    freeze_timestamp: pd.Timestamp,
+    min_forward_trades: int,
+) -> tuple[bool, str]:
+    if not manifest_path:
+        return False, "forward_freeze_manifest_missing"
+    path = Path(manifest_path)
+    current_hash = _file_sha256(path)
+    if current_hash in {"", "missing"}:
+        return False, "forward_freeze_manifest_missing"
+    if manifest_hash and manifest_hash != current_hash:
+        return False, "forward_freeze_manifest_hash_mismatch"
+    manifest = _load_json(path)
+    if not isinstance(manifest, dict):
+        return False, "forward_freeze_manifest_invalid"
+    try:
+        manifest_freeze = pd.Timestamp(str(manifest.get("freeze_timestamp")), tz="UTC")
+    except (TypeError, ValueError):
+        return False, "forward_freeze_timestamp_invalid"
+    if manifest_freeze != freeze_timestamp:
+        return False, "forward_freeze_timestamp_mismatch"
+    if manifest.get("historical_optimization_allowed") is not False:
+        return False, "historical_optimization_not_frozen"
+    if manifest.get("forward_only_after_freeze") is not True:
+        return False, "forward_only_after_freeze_missing"
+    if int(manifest.get("min_forward_trades_for_v196", 0) or 0) != int(min_forward_trades):
+        return False, "forward_min_trades_mismatch"
+    return True, "forward_freeze_manifest_clean"
 
 
 def _to_utc(series: pd.Series) -> pd.Series:
@@ -97,22 +148,53 @@ def _forward_monitoring_table(frame: pd.DataFrame, *, freeze_timestamp: pd.Times
     return pd.DataFrame(rows)
 
 
-def _payload_for_monitoring(forward_table: pd.DataFrame, *, latest_timestamp: str) -> dict[str, object]:
+def _payload_for_monitoring(
+    forward_table: pd.DataFrame,
+    *,
+    latest_timestamp: str,
+    forward_freeze_manifest_path: str | None = None,
+    forward_freeze_manifest_hash: str | None = None,
+) -> dict[str, object]:
     max_trades = int(forward_table["forward_trade_count"].max()) if not forward_table.empty else 0
-    evidence_available = max_trades >= MIN_FORWARD_TRADES
+    manifest_hash = forward_freeze_manifest_hash or (
+        _file_sha256(Path(forward_freeze_manifest_path)) if forward_freeze_manifest_path else "missing"
+    )
+    manifest_clean, manifest_status = _forward_freeze_manifest_clean(
+        manifest_path=forward_freeze_manifest_path,
+        manifest_hash=manifest_hash,
+        freeze_timestamp=FREEZE_TIMESTAMP,
+        min_forward_trades=MIN_FORWARD_TRADES,
+    )
+    enough_forward_rows = max_trades >= MIN_FORWARD_TRADES
+    evidence_available = enough_forward_rows and manifest_clean
+    if not manifest_clean:
+        status = manifest_status
+    else:
+        status = "forward_evidence_available" if evidence_available else "no_forward_evidence"
     return {
         "config": {
             "base": "v194_selected_account_path",
             "freeze_timestamp": str(FREEZE_TIMESTAMP),
             "min_forward_trades": MIN_FORWARD_TRADES,
+            "requires_forward_freeze_manifest": True,
             "adds_new_trades": False,
             "changes_existing_threshold": False,
             "changes_trade_side": False,
             "promotes_live_trading": False,
             "allow_historical_optimization": False,
         },
+        "checks": {
+            "forward_freeze_manifest_clean": manifest_clean,
+            "enough_forward_rows": enough_forward_rows,
+        },
+        "evidence": {
+            "forward_freeze_manifest_path": forward_freeze_manifest_path,
+            "forward_freeze_manifest_hash": manifest_hash,
+            "forward_freeze_manifest_status": manifest_status,
+            "forward_freeze_manifest_clean": manifest_clean,
+        },
         "decision": {
-            "status": "forward_evidence_available" if evidence_available else "no_forward_evidence",
+            "status": status,
             "promote_to_live": False,
             "forward_evidence_available": evidence_available,
             "allow_historical_optimization": False,
@@ -154,6 +236,7 @@ def _write_report(payload: dict[str, object], version_metrics: pd.DataFrame, for
         f"- Forward evidence available: `{decision['forward_evidence_available']}`",
         f"- Allow historical optimization: `{decision['allow_historical_optimization']}`",
         f"- Freeze timestamp: `{payload['config']['freeze_timestamp']}`",
+        f"- Freeze manifest clean: `{payload['checks']['forward_freeze_manifest_clean']}`",
         f"- Latest timestamp: `{decision['latest_timestamp']}`",
         f"- Forward trade count: `{decision['forward_trade_count']}`",
         f"- Message: {decision['message']}",
@@ -169,6 +252,7 @@ def _write_report(payload: dict[str, object], version_metrics: pd.DataFrame, for
         "- V194 remains the aggressive research candidate.",
         "- Rows at or before the freeze timestamp are historical and cannot validate V194.",
         "- Historical optimization remains frozen regardless of this monitor's result.",
+        "- The freeze timestamp must match the V224 forward-freeze manifest.",
         "",
         "## Forward Monitoring Table",
         "",
@@ -198,7 +282,11 @@ def run() -> dict[str, object]:
     latest_timestamp = str(frame["timestamp"].max()) if len(frame) else ""
     version_metrics = _version_metrics(frame)
     forward_table = _forward_monitoring_table(frame, freeze_timestamp=FREEZE_TIMESTAMP)
-    payload = _payload_for_monitoring(forward_table, latest_timestamp=latest_timestamp)
+    payload = _payload_for_monitoring(
+        forward_table,
+        latest_timestamp=latest_timestamp,
+        forward_freeze_manifest_path=str(DEFAULT_FORWARD_FREEZE_MANIFEST),
+    )
     version_metrics.to_csv(OUT_DIR / "v196_version_metrics.csv", index=False)
     forward_table.to_csv(OUT_DIR / "v196_forward_monitoring_table.csv", index=False)
     (OUT_DIR / "v196_forward_monitoring_gate_summary.json").write_text(

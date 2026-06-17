@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_btcusdc_v206_real_money_launch_preflight.py"
+FORWARD_FREEZE_MANIFEST = (
+    Path(__file__).resolve().parents[1] / "configs" / "btcusdc_v224_forward_freeze_manifest.json"
+)
 
 
 def _load_module():
@@ -22,6 +25,7 @@ def _load_module():
 def _ready_payload() -> dict[str, object]:
     input_path = str(SCRIPT_PATH)
     input_hash = hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
+    freeze_hash = hashlib.sha256(FORWARD_FREEZE_MANIFEST.read_bytes()).hexdigest()
     return {
         "config": {
             "min_execution_fills": 30,
@@ -36,6 +40,7 @@ def _ready_payload() -> dict[str, object]:
             "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
             "requires_strategy_manifest_hash": True,
+            "requires_forward_freeze_manifest": True,
         },
         "inputs": {
             "test_input": input_path,
@@ -45,6 +50,7 @@ def _ready_payload() -> dict[str, object]:
             "readiness_runtime_source_hash_clean": True,
             "readiness_input_hashes_clean": True,
             "strategy_manifest_hash_clean": True,
+            "forward_freeze_manifest_clean": True,
             "forward_freshness_clean": True,
             "public_data_available": True,
             "execution_validation_passed": True,
@@ -85,6 +91,10 @@ def _ready_payload() -> dict[str, object]:
             "strategy_manifest_path": input_path,
             "strategy_manifest_hash": input_hash,
             "strategy_manifest_hash_clean": True,
+            "forward_freeze_manifest_path": str(FORWARD_FREEZE_MANIFEST),
+            "forward_freeze_manifest_hash": freeze_hash,
+            "forward_freeze_manifest_status": "forward_freeze_manifest_clean",
+            "forward_freeze_manifest_clean": True,
             "readiness_input_hashes": {
                 "test_input": input_hash,
             },
@@ -386,6 +396,27 @@ def test_v206_blocks_ready_summary_without_strategy_manifest_hash() -> None:
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_strategy_manifest_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v206_blocks_ready_summary_without_forward_freeze_manifest() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    readiness_payload["config"].pop("requires_forward_freeze_manifest", None)
+    readiness_payload["checks"].pop("forward_freeze_manifest_clean", None)
+    readiness_payload["evidence"].pop("forward_freeze_manifest_clean", None)
+    readiness_payload["evidence"].pop("forward_freeze_manifest_hash", None)
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_forward_freeze_manifest_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_versioned_report_omits_commit_specific_sha(tmp_path: Path) -> None:

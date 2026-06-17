@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "research_v204_real_money_readiness_gate"
 REPORT_PATH = ROOT / "reports" / "RESEARCH_V204_BTCUSDC_REAL_MONEY_READINESS_GATE.md"
 DEFAULT_STRATEGY_MANIFEST = ROOT / "configs" / "btcusdc_v223_promoted_strategy_manifest.json"
+DEFAULT_FORWARD_FREEZE_MANIFEST = ROOT / "configs" / "btcusdc_v224_forward_freeze_manifest.json"
 V195_SUMMARY = ROOT / "runs" / "research_v195_post_goal_overfitting_audit" / "v195_post_goal_overfitting_audit_summary.json"
 V196_SUMMARY = ROOT / "runs" / "research_v196_forward_monitoring_gate" / "v196_forward_monitoring_gate_summary.json"
 V212_SUMMARY = ROOT / "runs" / "research_v212_forward_freshness_gate" / "v212_forward_freshness_gate_summary.json"
@@ -121,6 +122,7 @@ def _readiness_inputs(strategy_manifest_path: str | None) -> dict[str, str]:
     }
     if strategy_manifest_path:
         inputs["strategy_manifest"] = str(strategy_manifest_path)
+    inputs["forward_freeze_manifest"] = str(DEFAULT_FORWARD_FREEZE_MANIFEST)
     return inputs
 
 
@@ -171,6 +173,8 @@ def _payload_for_readiness(
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
+    forward_checks = _checks(forward_payload)
+    forward_evidence = _evidence(forward_payload)
     execution = _decision(execution_payload)
     execution_checks = _checks(execution_payload)
     execution_evidence = _evidence(execution_payload)
@@ -184,6 +188,12 @@ def _payload_for_readiness(
         _file_sha256(Path(strategy_manifest_path)) if strategy_manifest_path else "missing"
     )
     strategy_manifest_clean = bool(strategy_manifest_path) and manifest_hash not in {"", "missing"}
+    forward_freeze_manifest_clean = (
+        forward_checks.get("forward_freeze_manifest_clean") is True
+        and forward_evidence.get("forward_freeze_manifest_clean") is True
+        and bool(forward_evidence.get("forward_freeze_manifest_path"))
+        and str(forward_evidence.get("forward_freeze_manifest_hash", "")) not in {"", "missing"}
+    )
     inputs = _readiness_inputs(strategy_manifest_path)
     input_hashes = readiness_input_hashes if readiness_input_hashes is not None else {}
     input_hashes_clean = bool(input_hashes) and all(value not in {"", "missing"} for value in input_hashes.values())
@@ -195,6 +205,7 @@ def _payload_for_readiness(
         "readiness_runtime_source_hash_clean": runtime_source_hash_clean,
         "readiness_input_hashes_clean": input_hashes_clean,
         "strategy_manifest_hash_clean": strategy_manifest_clean,
+        "forward_freeze_manifest_clean": forward_freeze_manifest_clean,
         "historical_optimization_frozen_clean": (
             overfit.get("status") == "post_goal_overfitting_not_detected"
             and overfit.get("stop_historical_optimization") is False
@@ -268,6 +279,7 @@ def _payload_for_readiness(
             "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
             "requires_strategy_manifest_hash": True,
+            "requires_forward_freeze_manifest": True,
             "changes_strategy_thresholds": False,
             "changes_trade_side": False,
             "changes_leverage_logic": False,
@@ -316,6 +328,10 @@ def _payload_for_readiness(
             "strategy_manifest_path": strategy_manifest_path,
             "strategy_manifest_hash": manifest_hash,
             "strategy_manifest_hash_clean": strategy_manifest_clean,
+            "forward_freeze_manifest_path": forward_evidence.get("forward_freeze_manifest_path"),
+            "forward_freeze_manifest_hash": forward_evidence.get("forward_freeze_manifest_hash"),
+            "forward_freeze_manifest_status": forward_evidence.get("forward_freeze_manifest_status"),
+            "forward_freeze_manifest_clean": forward_freeze_manifest_clean,
         },
         "checks": checks,
         "decision": {
@@ -359,6 +375,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| Readiness runtime source hash clean | {checks['readiness_runtime_source_hash_clean']} | runtime_source_hash={evidence['readiness_runtime_source_hash']} |",
         f"| Readiness input hashes clean | {checks['readiness_input_hashes_clean']} | input_hash_count={len(evidence['readiness_input_hashes'])} |",
         f"| Strategy manifest hash clean | {checks['strategy_manifest_hash_clean']} | manifest_hash={evidence['strategy_manifest_hash']} |",
+        f"| Forward freeze manifest clean | {checks['forward_freeze_manifest_clean']} | status={evidence['forward_freeze_manifest_status']}; manifest_hash={evidence['forward_freeze_manifest_hash']} |",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
@@ -387,7 +404,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, the forward-freeze manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",

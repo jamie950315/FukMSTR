@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_btcusdc_v204_real_money_readiness_gate.py"
+FORWARD_FREEZE_MANIFEST = (
+    Path(__file__).resolve().parents[1] / "configs" / "btcusdc_v224_forward_freeze_manifest.json"
+)
 
 
 def _load_module():
@@ -55,6 +58,27 @@ def _execution_payload() -> dict[str, object]:
             "latest_execution_timestamp": "2026-06-16T00:31:00+00:00",
             "execution_evidence_age_days": 1.0,
             "paper_shadow_capture_summary_clean": True,
+        },
+    }
+
+
+def _forward_payload() -> dict[str, object]:
+    manifest_hash = hashlib.sha256(FORWARD_FREEZE_MANIFEST.read_bytes()).hexdigest()
+    return {
+        "checks": {
+            "forward_freeze_manifest_clean": True,
+            "enough_forward_rows": True,
+        },
+        "decision": {
+            "status": "forward_evidence_available",
+            "forward_evidence_available": True,
+            "forward_trade_count": 30,
+        },
+        "evidence": {
+            "forward_freeze_manifest_path": str(FORWARD_FREEZE_MANIFEST),
+            "forward_freeze_manifest_hash": manifest_hash,
+            "forward_freeze_manifest_status": "forward_freeze_manifest_clean",
+            "forward_freeze_manifest_clean": True,
         },
     }
 
@@ -110,13 +134,7 @@ def test_v204_requires_execution_validation_even_when_research_checks_pass() -> 
                 "stop_historical_optimization": False,
             }
         },
-        forward_payload={
-            "decision": {
-                "status": "forward_evidence_available",
-                "forward_evidence_available": True,
-                "forward_trade_count": 30,
-            }
-        },
+        forward_payload=_forward_payload(),
         realtime_summary={
             "rejected_signals": 0,
             "market_data_errors": 0,
@@ -148,13 +166,7 @@ def test_v204_blocks_legacy_execution_summary_without_provenance_checks() -> Non
                 "stop_historical_optimization": False,
             }
         },
-        forward_payload={
-            "decision": {
-                "status": "forward_evidence_available",
-                "forward_evidence_available": True,
-                "forward_trade_count": 30,
-            }
-        },
+        forward_payload=_forward_payload(),
         realtime_summary={
             "rejected_signals": 0,
             "market_data_errors": 0,
@@ -197,13 +209,7 @@ def test_v204_blocks_legacy_execution_summary_without_recency_check() -> None:
                 "stop_historical_optimization": False,
             }
         },
-        forward_payload={
-            "decision": {
-                "status": "forward_evidence_available",
-                "forward_evidence_available": True,
-                "forward_trade_count": 30,
-            }
-        },
+        forward_payload=_forward_payload(),
         realtime_summary={
             "rejected_signals": 0,
             "market_data_errors": 0,
@@ -359,6 +365,48 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
                 "stop_historical_optimization": False,
             }
         },
+        forward_payload=_forward_payload(),
+        realtime_summary={
+            "rejected_signals": 0,
+            "market_data_errors": 0,
+        },
+        execution_payload=_execution_payload(),
+        forward_freshness_payload={
+            "decision": {
+                "status": "forward_freshness_passed",
+                "forward_data_current": True,
+                "forward_evidence_available": True,
+            }
+        },
+        public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
+        strategy_manifest_path=str(SCRIPT_PATH),
+        strategy_manifest_hash=manifest_hash,
+    )
+
+    assert payload["decision"]["status"] == "real_money_ready"
+    assert payload["decision"]["promote_to_real_money"] is True
+    assert payload["decision"]["failed_checks"] == []
+    assert payload["config"]["requires_readiness_runtime_source_hash"] is True
+    assert payload["config"]["requires_strategy_manifest_hash"] is True
+    assert payload["config"]["requires_forward_freeze_manifest"] is True
+    assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
+    assert payload["evidence"]["strategy_manifest_hash"] == manifest_hash
+    assert payload["evidence"]["forward_freeze_manifest_clean"] is True
+
+
+def test_v204_blocks_when_forward_freeze_manifest_is_missing() -> None:
+    module = _load_module()
+    manifest_hash = hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
+
+    payload = module._payload_for_readiness(
+        overfit_payload={
+            "decision": {
+                "status": "post_goal_overfitting_not_detected",
+                "stop_historical_optimization": False,
+            }
+        },
         forward_payload={
             "decision": {
                 "status": "forward_evidence_available",
@@ -385,13 +433,8 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
         strategy_manifest_hash=manifest_hash,
     )
 
-    assert payload["decision"]["status"] == "real_money_ready"
-    assert payload["decision"]["promote_to_real_money"] is True
-    assert payload["decision"]["failed_checks"] == []
-    assert payload["config"]["requires_readiness_runtime_source_hash"] is True
-    assert payload["config"]["requires_strategy_manifest_hash"] is True
-    assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
-    assert payload["evidence"]["strategy_manifest_hash"] == manifest_hash
+    assert payload["decision"]["status"] == "real_money_blocked"
+    assert "forward_freeze_manifest_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v204_blocks_when_strategy_manifest_hash_is_missing() -> None:

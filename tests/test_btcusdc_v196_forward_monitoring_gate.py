@@ -8,6 +8,7 @@ import pandas as pd
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_btcusdc_v196_forward_monitoring_gate.py"
+MANIFEST_PATH = Path(__file__).resolve().parents[1] / "configs" / "btcusdc_v224_forward_freeze_manifest.json"
 
 
 def _load_module():
@@ -18,6 +19,14 @@ def _load_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _manifest_kwargs() -> dict[str, str]:
+    module = _load_module()
+    return {
+        "forward_freeze_manifest_path": str(MANIFEST_PATH),
+        "forward_freeze_manifest_hash": module._file_sha256(MANIFEST_PATH),
+    }
 
 
 def test_v196_forward_window_uses_only_rows_after_freeze_timestamp() -> None:
@@ -61,12 +70,34 @@ def test_v196_payload_blocks_forward_claim_when_no_new_rows_exist() -> None:
         }
     )
 
-    payload = module._payload_for_monitoring(forward_table, latest_timestamp="2026-06-09 16:40:00+00:00")
+    payload = module._payload_for_monitoring(
+        forward_table,
+        latest_timestamp="2026-06-09 16:40:00+00:00",
+        **_manifest_kwargs(),
+    )
 
     assert payload["decision"]["status"] == "no_forward_evidence"
     assert payload["decision"]["forward_evidence_available"] is False
     assert payload["decision"]["allow_historical_optimization"] is False
     assert payload["decision"]["promote_to_live"] is False
+
+
+def test_v196_payload_blocks_forward_claim_without_freeze_manifest() -> None:
+    module = _load_module()
+    forward_table = pd.DataFrame(
+        {
+            "version": ["V193", "V194"],
+            "forward_trade_count": [5, 5],
+            "forward_return_pct": [1.0, 2.0],
+            "forward_win_rate_pct": [60.0, 60.0],
+        }
+    )
+
+    payload = module._payload_for_monitoring(forward_table, latest_timestamp="2026-06-10 00:00:00+00:00")
+
+    assert payload["decision"]["status"] == "forward_freeze_manifest_missing"
+    assert payload["decision"]["forward_evidence_available"] is False
+    assert payload["decision"]["allow_historical_optimization"] is False
 
 
 def test_v196_metrics_table_keeps_v193_v194_comparison() -> None:

@@ -33,6 +33,8 @@ V206 allows real-money launch only when all checks pass:
 - no V204 failed checks remain
 - V204 summary includes the V223 fixed strategy manifest path and hash
 - the current strategy manifest hash still matches the V204 summary
+- V204 summary includes the V224 forward-freeze manifest path and hash
+- the current forward-freeze manifest hash still matches the V204 summary
 - the explicit arm token is provided
 - runtime source files are clean
 

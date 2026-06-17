@@ -4,14 +4,14 @@
 
 This repository is the public `FukMSTR` research workspace for BTCUSDC short-term trading research, replay, and paper-trading tools.
 
-Current active safety state is V223:
+Current active safety state is V224:
 
 - V142 remains the paper-trading and historical replay baseline.
 - Old account-path ledgers still backfill `Side` from the V119 signal reference when `signal` is omitted.
 - V204 is the real-money readiness gate and must block launch unless all evidence gates pass.
 - V206 is the final real-money launch preflight and must block launch unless V204 is ready, the operator explicitly arms real-money mode, and runtime source files are clean.
-- V212, V214, V216, V218, V219, V220, V221, V222, and V223 add forward freshness, public data availability, execution/signal provenance, source provenance, input hash, recent execution evidence, runtime source hash, paper-shadow capture provenance, and fixed strategy manifest locks.
-- As of V223, the real-money path is still blocked until fresh forward evidence and recent execution validation are clean.
+- V212, V214, V216, V218, V219, V220, V221, V222, V223, and V224 add forward freshness, public data availability, execution/signal provenance, source provenance, input hash, recent execution evidence, runtime source hash, paper-shadow capture provenance, fixed strategy manifest, and forward-freeze manifest locks.
+- As of V224, the real-money path is still blocked until fresh forward evidence and recent execution validation are clean.
 
 This is a research candidate, not a live trading system. Do not describe historical backtests as proof of future profit.
 
@@ -63,7 +63,7 @@ make test-trade-replay-v142
 For current real-money readiness/preflight safety changes, also use:
 
 ```bash
-make test-btcusdc-v223
+make test-btcusdc-v224
 make btcusdc-v204-real-money-readiness-gate
 make btcusdc-v206-real-money-launch-preflight
 PYTHONPATH=src python -m lob_microprice_lab.cli real-trade-btcusdc --out runs/research_v207_real_trade_cli_preflight --arm-real-money-token I_UNDERSTAND_THIS_USES_REAL_MONEY

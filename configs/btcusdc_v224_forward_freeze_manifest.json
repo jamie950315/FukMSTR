@@ -1,0 +1,17 @@
+{
+  "version": "v224_btcusdc_forward_freeze_manifest",
+  "symbol": "BTCUSDC",
+  "freeze_timestamp": "2026-06-09T16:40:00Z",
+  "historical_optimization_allowed": false,
+  "forward_only_after_freeze": true,
+  "min_forward_trades_for_v196": 5,
+  "candidate_versions": [
+    "V193",
+    "V194"
+  ],
+  "notes": [
+    "Rows at or before the freeze timestamp are historical and cannot validate the candidate.",
+    "Changing this manifest invalidates prior forward-monitoring evidence.",
+    "This manifest does not approve live trading."
+  ]
+}
