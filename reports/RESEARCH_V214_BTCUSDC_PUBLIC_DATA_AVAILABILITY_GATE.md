@@ -2,18 +2,18 @@
 
 ## Decision
 
-- Status: `public_data_availability_passed`
-- Public data available: `True`
+- Status: `public_data_pending_publication`
+- Public data available: `False`
 - Promote to real money: `False`
-- Failed checks: `none`
-- Message: Latest completed UTC day is published and local public data files are present.
+- Failed checks: `latest_completed_utc_day_published`
+- Message: Do not treat forward data as current. Public data publication or local downloads are incomplete.
 
 ## Gate Checks
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| Remote probe available | True | latest_completed_utc_date=2026-06-15 |
-| Latest completed UTC day published | True | aggtrade_http_status=200; kline_http_status=200 |
+| Remote probe available | True | latest_completed_utc_date=2026-06-16 |
+| Latest completed UTC day published | False | aggtrade_http_status=404; kline_http_status=404 |
 | Published files downloaded | True | missing_aggtrade=[]; missing_kline=[] |
 
 ## Iteration Metrics
@@ -25,7 +25,7 @@
 | Leverage logic changed | No |
 | New backtest return improvement claimed | No |
 | Places live orders | No |
-| Public data available | True |
+| Public data available | False |
 | Promote to real money | False |
 
 ## Interpretation

@@ -1,10 +1,22 @@
 # Research V193 Commands
 
-V193 is a BTCUSDC research overlay on top of the V192 selected account path.
+V193 is the official BTCUSDC online/paper iteration for monitoring and historical replay.
+
+It started as a BTCUSDC research overlay on top of the V192 selected account path and is now the promoted online/paper iteration recorded in `configs/btcusdc_v223_promoted_strategy_manifest.json`.
 
 It does not add trades, change trade side, or change existing entry thresholds. It only tests a size throttle inside a remaining `v125_top5_lb14_strict` long-base bucket when the 6-hour premium is not sufficiently negative.
 
 This is a research candidate, not a live trading guarantee.
+
+## Official Status
+
+- Official online/paper iteration: `V193`
+- Historical replay source: `runs/research_v193_long_base_top5_premium6h_throttle/v193_selected_account_path.csv`
+- Replay return column: `v193_account_return_pct`
+- Replay PnL column: `v193_account_pnl_bps`
+- Replay page target: `runs/v142_trading_replay/index.html`
+- Real-money status: blocked by V204/V206 unless every safety gate passes.
+- Forward monitor after the freeze currently has no new V193/V194 signal through `2026-06-15T23:59:00+00:00`.
 
 ## Input
 
@@ -26,6 +38,14 @@ V193 deliberately avoids rows already modified by V188, V189, V190, V191, or V19
 ```bash
 make btcusdc-v193-long-base-top5-premium6h-throttle
 ```
+
+## Historical Replay
+
+```bash
+make trade-replay-v193-page
+```
+
+The legacy `trade-replay-v142-page` target is kept as an alias path for the existing static page location, but it now generates the V193 replay data.
 
 ## Focused Test
 

@@ -17,8 +17,14 @@ def build_trade_replay_payload(
     initial_balance_usdc: float = 10_000.0,
     title: str = "BTCUSDC V142 Replay",
     signal_reference: pd.DataFrame | str | Path | None = None,
+    account_return_col: str = "account_return_pct",
+    account_pnl_col: str = "account_pnl_bps",
 ) -> dict[str, Any]:
-    frame = _read_account_path(account_path)
+    frame = _read_account_path(
+        account_path,
+        account_return_col=account_return_col,
+        account_pnl_col=account_pnl_col,
+    )
     frame = _fill_missing_signal(frame, signal_reference)
     start_ts = _utc_timestamp(start)
     date_only_end = _is_date_only(end)
@@ -29,6 +35,11 @@ def build_trade_replay_payload(
     else:
         frame = frame.loc[(frame["timestamp"] >= start_ts) & (frame["timestamp"] <= filter_end_ts)].copy()
     frame = frame.sort_values("timestamp", kind="stable").reset_index(drop=True)
+    frame = _prepare_replay_metrics(
+        frame,
+        account_return_col=account_return_col,
+        account_pnl_col=account_pnl_col,
+    )
 
     trades: list[dict[str, Any]] = []
     timeline: list[dict[str, Any]] = [
@@ -45,9 +56,9 @@ def build_trade_replay_payload(
     previous_balance = float(initial_balance_usdc)
     previous_return_pct = 0.0
     for index, row in frame.iterrows():
-        equity_return_pct = _as_float(row.get("equity_return_pct"), previous_return_pct)
+        equity_return_pct = _as_float(row.get("_replay_equity_return_pct"), previous_return_pct)
         balance_usdc = float(initial_balance_usdc) * (1.0 + equity_return_pct / 100.0)
-        profit_pct = _as_float(row.get("account_return_pct"), equity_return_pct - previous_return_pct)
+        profit_pct = _as_float(row.get("_replay_account_return_pct"), equity_return_pct - previous_return_pct)
         leverage = _as_float(row.get("account_leverage"), 0.0)
         position_weight = _as_float(row.get("position_weight"), 1.0)
         amount_usdc = max(previous_balance, 0.0) * leverage * position_weight
@@ -66,10 +77,10 @@ def build_trade_replay_payload(
             "result": "win" if profit_pct > 0.0 else "loss" if profit_pct < 0.0 else "flat",
             "balance_usdc": balance_usdc,
             "equity_return_pct": equity_return_pct,
-            "drawdown_pct": _as_float(row.get("drawdown_pct"), 0.0),
+            "drawdown_pct": _as_float(row.get("_replay_drawdown_pct"), 0.0),
             "direction_probability": _optional_float(row.get("direction_probability")),
             "high_confidence_rescue_5x": bool(row.get("high_confidence_rescue_5x", False)),
-            "account_pnl_bps": _as_float(row.get("account_pnl_bps"), 0.0),
+            "account_pnl_bps": _as_float(row.get("_replay_account_pnl_bps"), 0.0),
             "raw_net_pnl_bps": _as_float(row.get("net_pnl_bps"), 0.0),
             "indicator_key": _as_text(row.get("indicator_key", "")),
         }
@@ -139,6 +150,8 @@ def write_trade_replay_page(
     initial_balance_usdc: float = 10_000.0,
     title: str = "BTCUSDC V142 Replay",
     signal_reference: pd.DataFrame | str | Path | None = None,
+    account_return_col: str = "account_return_pct",
+    account_pnl_col: str = "account_pnl_bps",
 ) -> dict[str, str]:
     payload = build_trade_replay_payload(
         account_path,
@@ -147,6 +160,8 @@ def write_trade_replay_page(
         initial_balance_usdc=initial_balance_usdc,
         title=title,
         signal_reference=signal_reference,
+        account_return_col=account_return_col,
+        account_pnl_col=account_pnl_col,
     )
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,16 +171,48 @@ def write_trade_replay_page(
     return {"html": str(out_path), "data_json": str(data_path)}
 
 
-def _read_account_path(account_path: pd.DataFrame | str | Path) -> pd.DataFrame:
+def _read_account_path(
+    account_path: pd.DataFrame | str | Path,
+    *,
+    account_return_col: str = "account_return_pct",
+    account_pnl_col: str = "account_pnl_bps",
+) -> pd.DataFrame:
     frame = account_path.copy() if isinstance(account_path, pd.DataFrame) else pd.read_csv(account_path)
     if "timestamp" not in frame.columns:
         raise ValueError("account path must contain timestamp")
-    required = {"account_leverage", "account_return_pct", "equity_return_pct", "drawdown_pct"}
+    required = {"account_leverage", account_return_col}
+    if account_return_col == "account_return_pct":
+        required.update({"equity_return_pct", "drawdown_pct"})
+    if account_pnl_col:
+        required.add(account_pnl_col)
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"account path missing required columns: {', '.join(missing)}")
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
     return frame
+
+
+def _prepare_replay_metrics(
+    frame: pd.DataFrame,
+    *,
+    account_return_col: str,
+    account_pnl_col: str,
+) -> pd.DataFrame:
+    out = frame.copy()
+    returns = pd.to_numeric(out[account_return_col], errors="coerce").fillna(0.0)
+    out["_replay_account_return_pct"] = returns
+    if account_return_col == "account_return_pct":
+        out["_replay_equity_return_pct"] = pd.to_numeric(out["equity_return_pct"], errors="coerce").fillna(returns.cumsum())
+        out["_replay_drawdown_pct"] = pd.to_numeric(out["drawdown_pct"], errors="coerce").fillna(0.0)
+    else:
+        equity = returns.cumsum()
+        out["_replay_equity_return_pct"] = equity
+        out["_replay_drawdown_pct"] = equity - equity.cummax()
+    if account_pnl_col and account_pnl_col in out.columns:
+        out["_replay_account_pnl_bps"] = pd.to_numeric(out[account_pnl_col], errors="coerce").fillna(0.0)
+    else:
+        out["_replay_account_pnl_bps"] = returns * 100.0
+    return out
 
 
 def _is_date_only(value: str) -> bool:
@@ -203,13 +250,13 @@ def _fill_missing_signal(frame: pd.DataFrame, signal_reference: pd.DataFrame | s
         raise ValueError("signal reference must contain timestamp and signal columns")
     reference = reference[["timestamp", "signal"]].copy()
     reference["timestamp"] = pd.to_datetime(reference["timestamp"], utc=True)
-    reference["signal_reference"] = pd.to_numeric(reference["signal"], errors="coerce")
-    reference = reference.dropna(subset=["timestamp", "signal_reference"]).drop_duplicates("timestamp", keep="first")
-    out = out.merge(reference[["timestamp", "signal_reference"]], on="timestamp", how="left")
-    fill_mask = out["signal"].isna() & out["signal_reference"].notna()
-    out.loc[fill_mask, "signal"] = out.loc[fill_mask, "signal_reference"]
+    reference["_signal_reference_fill"] = pd.to_numeric(reference["signal"], errors="coerce")
+    reference = reference.dropna(subset=["timestamp", "_signal_reference_fill"]).drop_duplicates("timestamp", keep="first")
+    out = out.merge(reference[["timestamp", "_signal_reference_fill"]], on="timestamp", how="left")
+    fill_mask = out["signal"].isna() & out["_signal_reference_fill"].notna()
+    out.loc[fill_mask, "signal"] = out.loc[fill_mask, "_signal_reference_fill"]
     out.loc[fill_mask, "side_source"] = "signal_reference"
-    return out.drop(columns=["signal_reference"])
+    return out.drop(columns=["_signal_reference_fill"])
 
 
 def _as_float(value: object, default: float) -> float:

@@ -5,6 +5,7 @@
 - Status: `real_money_launch_blocked`
 - Allow real-money launch: `False`
 - New lock: V204 must record a fixed strategy manifest path and hash; V206 and the CLI must verify the current manifest still matches.
+- Official online/paper iteration: `V193`
 - Current blocking reason: V204 is still `real_money_blocked`, V212 has no fresh forward evidence, and V205 execution evidence is missing or incomplete.
 
 ## Gate Checks
@@ -12,6 +13,7 @@
 | Check | Result | Evidence |
 |---|---:|---|
 | Fixed strategy manifest added | Yes | `configs/btcusdc_v223_promoted_strategy_manifest.json` |
+| Fixed manifest identifies V193 | Yes | `official_online_iteration=V193` |
 | V204 requires manifest hash | Yes | Readiness gate blocks summaries missing `strategy_manifest_hash_clean` |
 | V206 requires manifest hash | Yes | Launch preflight blocks ready summaries without a matching manifest hash |
 | CLI requires manifest hash | Yes | `real-trade-btcusdc` preflight blocks ready summaries without a matching manifest hash |

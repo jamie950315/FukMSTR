@@ -6,7 +6,8 @@ This repository is the public `FukMSTR` research workspace for BTCUSDC short-ter
 
 Current active safety state is V224:
 
-- V142 remains the paper-trading and historical replay baseline.
+- V193 is the official BTCUSDC online/paper iteration for monitoring and historical replay.
+- V142 remains the legacy paper-trading CLI entrypoint name and compatibility layer.
 - Old account-path ledgers still backfill `Side` from the V119 signal reference when `signal` is omitted.
 - V204 is the real-money readiness gate and must block launch unless all evidence gates pass.
 - V206 is the final real-money launch preflight and must block launch unless V204 is ready, the operator explicitly arms real-money mode, and runtime source files are clean.
@@ -55,6 +56,7 @@ python -m build
 For V142-focused changes, also use the relevant target:
 
 ```bash
+make test-btcusdc-v193
 make test-btcusdc-v142
 make test-paper-trading-v142
 make test-trade-replay-v142

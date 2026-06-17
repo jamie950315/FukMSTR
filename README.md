@@ -6,20 +6,30 @@ This repository is a research workspace for testing short-horizon BTCUSDC signal
 
 ## Current status
 
-The latest working branch in this handoff is V142:
+The official BTCUSDC online/paper iteration is V193:
 
-- BTCUSDC historical trade replay page
-- Side backfill from the V119 signal reference when older account-path ledgers omit `signal`
-- V142 paper-trading MVP with public Binance ticker support, CSV replay, synthetic demo data, and local dashboard output
-- High-confidence rescue 5x leverage path with drawdown throttling
+- V193 is the promoted online/paper iteration for BTCUSDC monitoring and historical replay.
+- V193 uses the V192 selected account path plus a top5 long-base premium-6h size throttle.
+- The historical replay page is generated from the V193 account-return and PnL columns.
+- V142 remains the legacy paper-trading CLI entrypoint name and historical compatibility layer.
+- Side backfill still uses the V119 signal reference when older account-path ledgers omit `signal`.
 
-The generated replay data currently confirms that historical replay has no missing side labels:
+The generated V193 replay data currently confirms that historical replay has no missing side labels:
 
 ```text
 trades: 645
 long: 513
 short: 132
 side = n/a: 0
+```
+
+The replay window is extended through the latest locally verified forward public data:
+
+```text
+period end: 2026-06-15T23:59:59.999999+00:00
+last V193 trade: 2026-06-09T16:40:00+00:00
+forward monitor through: 2026-06-15T23:59:00+00:00
+new forward signals after freeze: 0
 ```
 
 ## Important warning
@@ -70,12 +80,12 @@ Build the package:
 python -m build
 ```
 
-## V142 replay
+## V193 replay
 
 Generate the historical replay page:
 
 ```bash
-make trade-replay-v142-page
+make trade-replay-v193-page
 ```
 
 Output:
@@ -93,7 +103,7 @@ The replay page includes:
 - side and side source columns
 - month and total performance fields
 
-## V142 paper trading demo
+## Paper trading demo
 
 Run the synthetic local demo:
 
@@ -111,13 +121,14 @@ runs/paper_v142_demo/trades.csv
 runs/paper_v142_demo/summary.json
 ```
 
-The paper-trading tool is local simulation only. It records events and hypothetical trades but does not submit orders.
+The paper-trading tool is local simulation only. It records events and hypothetical trades but does not submit orders. The command name remains `paper-trade-v142` for compatibility; V193 is the official promoted online/paper iteration recorded in the strategy manifest.
 
 ## Validation commands
 
-Focused V142 checks:
+Focused checks:
 
 ```bash
+make test-btcusdc-v193
 make test-btcusdc-v142
 make test-paper-trading-v142
 make test-trade-replay-v142

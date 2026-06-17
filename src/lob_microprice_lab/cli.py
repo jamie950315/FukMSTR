@@ -932,20 +932,47 @@ def build_parser() -> argparse.ArgumentParser:
     real_trade.add_argument("--out", required=True)
     real_trade.add_argument("--arm-real-money-token", default="")
 
-    replay = sub.add_parser("trade-replay-v142", help="Build an interactive V142 historical trading replay page.")
-    replay.add_argument(
-        "--account-path",
-        default="runs/research_v142_high_confidence_rescue_5x/v142_selected_account_path.csv",
+    def add_replay_args(
+        replay_parser: argparse.ArgumentParser,
+        *,
+        account_path: str,
+        end: str,
+        title: str,
+        account_return_col: str,
+        account_pnl_col: str,
+    ) -> None:
+        replay_parser.add_argument("--account-path", default=account_path)
+        replay_parser.add_argument("--out", required=True)
+        replay_parser.add_argument("--start", default="2024-07-01")
+        replay_parser.add_argument("--end", default=end)
+        replay_parser.add_argument("--initial-balance-usdc", type=float, default=10_000.0)
+        replay_parser.add_argument("--title", default=title)
+        replay_parser.add_argument(
+            "--signal-reference",
+            default=None,
+            help="CSV with timestamp and signal columns used to fill missing historical side values.",
+        )
+        replay_parser.add_argument("--account-return-col", default=account_return_col)
+        replay_parser.add_argument("--account-pnl-col", default=account_pnl_col)
+
+    replay_v142 = sub.add_parser("trade-replay-v142", help="Build the legacy V142 historical trading replay page.")
+    add_replay_args(
+        replay_v142,
+        account_path="runs/research_v142_high_confidence_rescue_5x/v142_selected_account_path.csv",
+        end="2026-06-12",
+        title="BTCUSDC V142 Trading Replay",
+        account_return_col="account_return_pct",
+        account_pnl_col="account_pnl_bps",
     )
-    replay.add_argument("--out", required=True)
-    replay.add_argument("--start", default="2024-07-01")
-    replay.add_argument("--end", default="2026-06-12")
-    replay.add_argument("--initial-balance-usdc", type=float, default=10_000.0)
-    replay.add_argument("--title", default="BTCUSDC V142 Trading Replay")
-    replay.add_argument(
-        "--signal-reference",
-        default=None,
-        help="CSV with timestamp and signal columns used to fill missing historical side values.",
+
+    replay_v193 = sub.add_parser("trade-replay-v193", help="Build the official V193 historical trading replay page.")
+    add_replay_args(
+        replay_v193,
+        account_path="runs/research_v193_long_base_top5_premium6h_throttle/v193_selected_account_path.csv",
+        end="2026-06-15",
+        title="BTCUSDC V193 Trading Replay",
+        account_return_col="v193_account_return_pct",
+        account_pnl_col="v193_account_pnl_bps",
     )
 
     return parser
@@ -956,7 +983,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
 
-    if args.command == "trade-replay-v142":
+    if args.command in {"trade-replay-v142", "trade-replay-v193"}:
         result = write_trade_replay_page(
             account_path=args.account_path,
             out=args.out,
@@ -965,6 +992,8 @@ def main(argv: list[str] | None = None) -> int:
             initial_balance_usdc=args.initial_balance_usdc,
             title=args.title,
             signal_reference=args.signal_reference,
+            account_return_col=args.account_return_col,
+            account_pnl_col=args.account_pnl_col,
         )
         print(json.dumps(result, indent=2))
         return 0

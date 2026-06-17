@@ -176,6 +176,7 @@ def test_build_trade_replay_payload_preserves_input_order_for_same_timestamp_tra
 def test_build_trade_replay_payload_fills_missing_side_from_signal_reference() -> None:
     account_path = _sample_account_path()
     account_path.loc[0, "signal"] = pd.NA
+    account_path["signal_reference"] = [pd.NA, pd.NA]
     signal_reference = pd.DataFrame(
         [
             {"timestamp": "2024-07-08T00:10:00Z", "signal": -1},
@@ -255,6 +256,71 @@ def test_build_trade_replay_payload_monthly_return_uses_balance_change_not_trade
     assert round(payload["monthly_returns_pct"]["2026-01"], 8) == -1.0
 
 
+def test_build_trade_replay_payload_uses_selected_strategy_return_column() -> None:
+    account_path = pd.DataFrame(
+        [
+            {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "source": "candidate_1",
+                "leg": "base",
+                "signal": 1,
+                "position_weight": 1.0,
+                "account_leverage": 1.0,
+                "account_pnl_bps": -9999.0,
+                "account_return_pct": -99.0,
+                "equity_return_pct": -99.0,
+                "drawdown_pct": -99.0,
+                "v193_account_pnl_bps": 1000.0,
+                "v193_account_return_pct": 10.0,
+            },
+            {
+                "timestamp": "2026-01-02T00:00:00Z",
+                "source": "candidate_2",
+                "leg": "base",
+                "signal": 1,
+                "position_weight": 1.0,
+                "account_leverage": 1.0,
+                "account_pnl_bps": -9999.0,
+                "account_return_pct": -99.0,
+                "equity_return_pct": -198.0,
+                "drawdown_pct": -198.0,
+                "v193_account_pnl_bps": -1500.0,
+                "v193_account_return_pct": -15.0,
+            },
+            {
+                "timestamp": "2026-01-03T00:00:00Z",
+                "source": "candidate_3",
+                "leg": "base",
+                "signal": 1,
+                "position_weight": 1.0,
+                "account_leverage": 1.0,
+                "account_pnl_bps": -9999.0,
+                "account_return_pct": -99.0,
+                "equity_return_pct": -297.0,
+                "drawdown_pct": -297.0,
+                "v193_account_pnl_bps": 2000.0,
+                "v193_account_return_pct": 20.0,
+            },
+        ]
+    )
+
+    payload = build_trade_replay_payload(
+        account_path,
+        start="2026-01-01",
+        end="2026-01-31",
+        initial_balance_usdc=10_000.0,
+        title="V193 BTCUSDC Replay",
+        account_return_col="v193_account_return_pct",
+        account_pnl_col="v193_account_pnl_bps",
+    )
+
+    assert round(payload["summary"]["total_return_pct"], 8) == 15.0
+    assert payload["summary"]["final_balance_usdc"] == 11_500.0
+    assert payload["summary"]["max_drawdown_pct"] == -15.0
+    assert [trade["profit_pct"] for trade in payload["trades"]] == [10.0, -15.0, 20.0]
+    assert [trade["account_pnl_bps"] for trade in payload["trades"]] == [1000.0, -1500.0, 2000.0]
+
+
 def test_write_trade_replay_page_contains_playback_controls_chart_metrics_and_logs(tmp_path: Path) -> None:
     html_path = tmp_path / "replay.html"
 
@@ -305,9 +371,41 @@ def test_trade_replay_v142_cli_writes_page_and_data(tmp_path: Path, monkeypatch)
             "2026-06-12",
             "--initial-balance-usdc",
             "10000",
+            "--account-return-col",
+            "account_return_pct",
+            "--account-pnl-col",
+            "account_pnl_bps",
         ]
     )
 
     assert rc == 0
     assert out_path.exists()
     assert (out_path.parent / "replay_data.json").exists()
+
+
+def test_trade_replay_v193_cli_defaults_to_v193_strategy_columns(tmp_path: Path, monkeypatch) -> None:
+    from lob_microprice_lab.cli import main
+
+    account_path = tmp_path / "v193_account_path.csv"
+    out_path = tmp_path / "replay" / "index.html"
+    sample = _sample_account_path()
+    sample["v193_account_return_pct"] = [10.0, -2.5]
+    sample["v193_account_pnl_bps"] = [1000.0, -250.0]
+    sample.to_csv(account_path, index=False)
+    monkeypatch.chdir(tmp_path)
+
+    rc = main(
+        [
+            "trade-replay-v193",
+            "--account-path",
+            str(account_path),
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    data = json.loads((out_path.parent / "replay_data.json").read_text(encoding="utf-8"))
+    assert rc == 0
+    assert data["title"] == "BTCUSDC V193 Trading Replay"
+    assert data["period"]["end"] == "2026-06-15T23:59:59.999999+00:00"
+    assert [trade["profit_pct"] for trade in data["trades"]] == [10.0, -2.5]

@@ -2,9 +2,9 @@
 
 ## Decision
 
-- Data end: `2026-06-12T23:59:00+00:00`
+- Data end: `2026-06-15T23:59:00+00:00`
 - Forward signal start: `2026-06-06T04:10:00+00:00`
-- New aggTrade files: `2`
+- New aggTrade files: `5`
 - New signal count across monitored policies: `0`
 - Monitoring status: `no_signal`
 - Next action: `continue_monitoring`

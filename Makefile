@@ -1334,7 +1334,9 @@ test-paper-trading-v142:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py
 
 trade-replay-v142-page:
-	PYTHONPATH=src python -m lob_microprice_lab.cli trade-replay-v142 --out runs/v142_trading_replay/index.html --start 2024-07-01 --end 2026-06-12 --initial-balance-usdc 10000 --signal-reference runs/research_v119_btcusdc_live_entry_model/v119_live_feature_frame.csv
+	PYTHONPATH=src python -m lob_microprice_lab.cli trade-replay-v193 --out runs/v142_trading_replay/index.html --signal-reference runs/research_v119_btcusdc_live_entry_model/v119_live_feature_frame.csv
+
+trade-replay-v193-page: trade-replay-v142-page
 
 test-trade-replay-v142:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_trade_replay_page_v142.py
