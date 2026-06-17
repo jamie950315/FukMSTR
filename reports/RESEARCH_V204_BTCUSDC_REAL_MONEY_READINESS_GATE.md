@@ -12,8 +12,9 @@
 | Check | Passed | Evidence |
 |---|---:|---|
 | Readiness source provenance clean | True | source_commit=recorded_in_summary_json; dirty_runtime_path_count=0 |
-| Readiness runtime source hash clean | True | runtime_source_hash=c53872f4f32f728f65c8c12e69d83f7e5677d11412684aaa5d171755b641a174 |
-| Readiness input hashes clean | True | input_hash_count=6 |
+| Readiness runtime source hash clean | True | runtime_source_hash=46786cd68793590cc0072dcf418dc157f32886e32643fe6912fdffde3d444edc |
+| Readiness input hashes clean | True | input_hash_count=7 |
+| Strategy manifest hash clean | True | manifest_hash=1aece4e916e7723a286db3e82282338a91f4eef248272cb79c3ba2d13b18aee9 |
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
 | Forward freshness clean | False | forward_freshness_status=forward_fresh_no_signal; forward_data_current=True; fresh_forward_evidence_available=False |
@@ -42,6 +43,6 @@
 
 ## Interpretation
 
-V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.
+V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.
 
 This remains research and safety infrastructure until all gates pass with current evidence.
