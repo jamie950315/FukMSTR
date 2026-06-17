@@ -31,11 +31,14 @@ V206 allows real-money launch only when all checks pass:
 - V212 freshness evidence reports current forward data and enough passing forward trades
 - `promote_to_real_money` is `true`
 - no V204 failed checks remain
+- V204 summary includes the V223 fixed strategy manifest path and hash
+- the current strategy manifest hash still matches the V204 summary
 - the explicit arm token is provided
 - runtime source files are clean
 
 Runtime source includes:
 
+- `configs/`
 - `src/`
 - `scripts/`
 - `tests/`

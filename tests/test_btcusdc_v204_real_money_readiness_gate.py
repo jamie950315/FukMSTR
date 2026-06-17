@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -349,6 +350,52 @@ def test_v204_requires_public_data_availability_even_when_other_gates_pass() -> 
 
 def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
     module = _load_module()
+    manifest_hash = hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
+
+    payload = module._payload_for_readiness(
+        overfit_payload={
+            "decision": {
+                "status": "post_goal_overfitting_not_detected",
+                "stop_historical_optimization": False,
+            }
+        },
+        forward_payload={
+            "decision": {
+                "status": "forward_evidence_available",
+                "forward_evidence_available": True,
+                "forward_trade_count": 30,
+            }
+        },
+        realtime_summary={
+            "rejected_signals": 0,
+            "market_data_errors": 0,
+        },
+        execution_payload=_execution_payload(),
+        forward_freshness_payload={
+            "decision": {
+                "status": "forward_freshness_passed",
+                "forward_data_current": True,
+                "forward_evidence_available": True,
+            }
+        },
+        public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
+        strategy_manifest_path=str(SCRIPT_PATH),
+        strategy_manifest_hash=manifest_hash,
+    )
+
+    assert payload["decision"]["status"] == "real_money_ready"
+    assert payload["decision"]["promote_to_real_money"] is True
+    assert payload["decision"]["failed_checks"] == []
+    assert payload["config"]["requires_readiness_runtime_source_hash"] is True
+    assert payload["config"]["requires_strategy_manifest_hash"] is True
+    assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
+    assert payload["evidence"]["strategy_manifest_hash"] == manifest_hash
+
+
+def test_v204_blocks_when_strategy_manifest_hash_is_missing() -> None:
+    module = _load_module()
 
     payload = module._payload_for_readiness(
         overfit_payload={
@@ -381,11 +428,8 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
         readiness_runtime_source_hash="runtime-source-hash",
     )
 
-    assert payload["decision"]["status"] == "real_money_ready"
-    assert payload["decision"]["promote_to_real_money"] is True
-    assert payload["decision"]["failed_checks"] == []
-    assert payload["config"]["requires_readiness_runtime_source_hash"] is True
-    assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
+    assert payload["decision"]["status"] == "real_money_blocked"
+    assert "strategy_manifest_hash_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v204_versioned_report_omits_commit_specific_sha(tmp_path: Path) -> None:

@@ -1,0 +1,21 @@
+{
+  "version": "v223_btcusdc_promoted_strategy_manifest",
+  "symbol": "BTCUSDC",
+  "research_candidate": "v142_paper_trading_and_historical_replay_baseline",
+  "real_money_status": "blocked",
+  "paper_trading_only": true,
+  "places_live_orders": false,
+  "changes_strategy_thresholds": false,
+  "changes_trade_side": false,
+  "changes_leverage_logic": false,
+  "requires_forward_freshness": true,
+  "requires_execution_validation": true,
+  "requires_signal_provenance": true,
+  "requires_recent_execution_evidence": true,
+  "requires_paper_shadow_capture_summary": true,
+  "notes": [
+    "This manifest pins the strategy identity used by readiness evidence.",
+    "It is not approval for live trading.",
+    "Real-money launch remains blocked until V204 and V206 pass with current forward and execution evidence."
+  ]
+}

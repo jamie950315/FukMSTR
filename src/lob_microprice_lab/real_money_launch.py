@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 READINESS_SUMMARY = ROOT / "runs" / "research_v204_real_money_readiness_gate" / "v204_real_money_readiness_summary.json"
 REQUIRED_ARM_TOKEN = "I_UNDERSTAND_THIS_USES_REAL_MONEY"
 RUNTIME_PREFIXES = (
+    "configs/",
     "src/",
     "scripts/",
     "tests/",
@@ -251,6 +252,26 @@ def _readiness_input_hashes_clean(payload: dict[str, Any] | None) -> bool:
     )
 
 
+def _readiness_strategy_manifest_clean(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    config = payload.get("config", {})
+    checks = payload.get("checks", {})
+    evidence = payload.get("evidence", {})
+    if not (isinstance(config, dict) and isinstance(checks, dict) and isinstance(evidence, dict)):
+        return False
+    manifest_path = evidence.get("strategy_manifest_path")
+    manifest_hash = str(evidence.get("strategy_manifest_hash", ""))
+    if not manifest_path or manifest_hash in {"", "missing"}:
+        return False
+    return (
+        config.get("requires_strategy_manifest_hash") is True
+        and checks.get("strategy_manifest_hash_clean") is True
+        and evidence.get("strategy_manifest_hash_clean") is True
+        and _file_sha256(Path(str(manifest_path))) == manifest_hash
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -301,6 +322,7 @@ def real_money_launch_preflight(
         current_runtime_source_hash=current_runtime_source_hash,
     )
     input_hashes_clean = _readiness_input_hashes_clean(readiness_payload)
+    strategy_manifest_clean = _readiness_strategy_manifest_clean(readiness_payload)
     dirty_runtime_paths = _dirty_runtime_paths_from_git()
     checks = {
         "readiness_gate_passed": (
@@ -313,6 +335,7 @@ def real_money_launch_preflight(
         "readiness_execution_provenance_clean": execution_provenance_clean,
         "readiness_source_provenance_clean": source_provenance_clean,
         "readiness_input_hashes_clean": input_hashes_clean,
+        "readiness_strategy_manifest_clean": strategy_manifest_clean,
         "explicit_real_money_arm": arm_token == REQUIRED_ARM_TOKEN,
         "runtime_source_clean": len(dirty_runtime_paths) == 0,
     }
@@ -335,6 +358,7 @@ def real_money_launch_preflight(
             "requires_v220_recent_execution_evidence": True,
             "requires_v221_runtime_source_hash": True,
             "requires_v222_paper_shadow_capture_summary": True,
+            "requires_v223_strategy_manifest_hash": True,
             "requires_explicit_arm": True,
             "requires_clean_runtime_source": True,
         },
@@ -348,6 +372,7 @@ def real_money_launch_preflight(
             "readiness_execution_provenance_clean": execution_provenance_clean,
             "readiness_source_provenance_clean": source_provenance_clean,
             "readiness_input_hashes_clean": input_hashes_clean,
+            "readiness_strategy_manifest_clean": strategy_manifest_clean,
             "current_source_commit": current_source_commit,
             "current_runtime_source_hash": current_runtime_source_hash,
             "dirty_runtime_paths": dirty_runtime_paths,

@@ -10,6 +10,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "research_v204_real_money_readiness_gate"
 REPORT_PATH = ROOT / "reports" / "RESEARCH_V204_BTCUSDC_REAL_MONEY_READINESS_GATE.md"
+DEFAULT_STRATEGY_MANIFEST = ROOT / "configs" / "btcusdc_v223_promoted_strategy_manifest.json"
 V195_SUMMARY = ROOT / "runs" / "research_v195_post_goal_overfitting_audit" / "v195_post_goal_overfitting_audit_summary.json"
 V196_SUMMARY = ROOT / "runs" / "research_v196_forward_monitoring_gate" / "v196_forward_monitoring_gate_summary.json"
 V212_SUMMARY = ROOT / "runs" / "research_v212_forward_freshness_gate" / "v212_forward_freshness_gate_summary.json"
@@ -23,6 +24,7 @@ MIN_FORWARD_TRADES = 30
 MAX_EXECUTION_SLIPPAGE_BPS_P95 = 5.0
 MIN_EXECUTION_FILLS = 30
 RUNTIME_PREFIXES = (
+    "configs/",
     "src/",
     "scripts/",
     "tests/",
@@ -108,6 +110,20 @@ def _readiness_input_hashes(inputs: dict[str, str]) -> dict[str, str]:
     return hashes
 
 
+def _readiness_inputs(strategy_manifest_path: str | None) -> dict[str, str]:
+    inputs = {
+        "overfit_audit": str(V195_SUMMARY),
+        "forward_monitoring": str(V196_SUMMARY),
+        "forward_freshness": str(V212_SUMMARY),
+        "public_data_availability": str(V214_SUMMARY),
+        "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
+        "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
+    }
+    if strategy_manifest_path:
+        inputs["strategy_manifest"] = str(strategy_manifest_path)
+    return inputs
+
+
 def _runtime_source_hash_from_git() -> str:
     try:
         result = subprocess.run(
@@ -150,6 +166,8 @@ def _payload_for_readiness(
     dirty_runtime_paths: list[str] | None = None,
     readiness_input_hashes: dict[str, str] | None = None,
     readiness_runtime_source_hash: str | None = None,
+    strategy_manifest_path: str | None = None,
+    strategy_manifest_hash: str | None = None,
 ) -> dict[str, Any]:
     overfit = _decision(overfit_payload)
     forward = _decision(forward_payload)
@@ -162,14 +180,11 @@ def _payload_for_readiness(
     execution_slippage = float(execution.get("max_slippage_bps_p95", 999.0) or 999.0)
     dirty_paths = dirty_runtime_paths if dirty_runtime_paths is not None else []
     readiness_source_clean = source_commit not in {"", "git_commit_unavailable"} and not dirty_paths
-    inputs = {
-        "overfit_audit": str(V195_SUMMARY),
-        "forward_monitoring": str(V196_SUMMARY),
-        "forward_freshness": str(V212_SUMMARY),
-        "public_data_availability": str(V214_SUMMARY),
-        "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
-        "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
-    }
+    manifest_hash = strategy_manifest_hash or (
+        _file_sha256(Path(strategy_manifest_path)) if strategy_manifest_path else "missing"
+    )
+    strategy_manifest_clean = bool(strategy_manifest_path) and manifest_hash not in {"", "missing"}
+    inputs = _readiness_inputs(strategy_manifest_path)
     input_hashes = readiness_input_hashes if readiness_input_hashes is not None else {}
     input_hashes_clean = bool(input_hashes) and all(value not in {"", "missing"} for value in input_hashes.values())
     runtime_source_hash = readiness_runtime_source_hash or "runtime_source_hash_unavailable"
@@ -179,6 +194,7 @@ def _payload_for_readiness(
         "readiness_source_provenance_clean": readiness_source_clean,
         "readiness_runtime_source_hash_clean": runtime_source_hash_clean,
         "readiness_input_hashes_clean": input_hashes_clean,
+        "strategy_manifest_hash_clean": strategy_manifest_clean,
         "historical_optimization_frozen_clean": (
             overfit.get("status") == "post_goal_overfitting_not_detected"
             and overfit.get("stop_historical_optimization") is False
@@ -251,6 +267,7 @@ def _payload_for_readiness(
             "requires_readiness_source_provenance": True,
             "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
+            "requires_strategy_manifest_hash": True,
             "changes_strategy_thresholds": False,
             "changes_trade_side": False,
             "changes_leverage_logic": False,
@@ -296,6 +313,9 @@ def _payload_for_readiness(
             "readiness_dirty_runtime_paths": dirty_paths,
             "readiness_dirty_runtime_path_count": len(dirty_paths),
             "readiness_input_hashes": input_hashes,
+            "strategy_manifest_path": strategy_manifest_path,
+            "strategy_manifest_hash": manifest_hash,
+            "strategy_manifest_hash_clean": strategy_manifest_clean,
         },
         "checks": checks,
         "decision": {
@@ -338,6 +358,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| Readiness source provenance clean | {checks['readiness_source_provenance_clean']} | source_commit={REPORT_SOURCE_COMMIT_NOTE}; dirty_runtime_path_count={evidence['readiness_dirty_runtime_path_count']} |",
         f"| Readiness runtime source hash clean | {checks['readiness_runtime_source_hash_clean']} | runtime_source_hash={evidence['readiness_runtime_source_hash']} |",
         f"| Readiness input hashes clean | {checks['readiness_input_hashes_clean']} | input_hash_count={len(evidence['readiness_input_hashes'])} |",
+        f"| Strategy manifest hash clean | {checks['strategy_manifest_hash_clean']} | manifest_hash={evidence['strategy_manifest_hash']} |",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",
         f"| Forward evidence available | {checks['forward_evidence_available']} | forward_status={evidence['forward_status']}; forward_trade_count={evidence['forward_trade_count']} |",
         f"| Forward freshness clean | {checks['forward_freshness_clean']} | forward_freshness_status={evidence['forward_freshness_status']}; forward_data_current={evidence['forward_data_current']}; fresh_forward_evidence_available={evidence['fresh_forward_evidence_available']} |",
@@ -366,7 +387,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",
@@ -377,14 +398,7 @@ def _write_report(payload: dict[str, Any]) -> None:
 def run() -> dict[str, Any]:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    inputs = {
-        "overfit_audit": str(V195_SUMMARY),
-        "forward_monitoring": str(V196_SUMMARY),
-        "forward_freshness": str(V212_SUMMARY),
-        "public_data_availability": str(V214_SUMMARY),
-        "realtime_smoke": str(REALTIME_SMOKE_SUMMARY),
-        "execution_validation": str(EXECUTION_VALIDATION_SUMMARY),
-    }
+    inputs = _readiness_inputs(str(DEFAULT_STRATEGY_MANIFEST))
     payload = _payload_for_readiness(
         overfit_payload=_load_json(V195_SUMMARY),
         forward_payload=_load_json(V196_SUMMARY),
@@ -396,6 +410,7 @@ def run() -> dict[str, Any]:
         dirty_runtime_paths=_dirty_runtime_paths_from_git(),
         readiness_input_hashes=_readiness_input_hashes(inputs),
         readiness_runtime_source_hash=_runtime_source_hash_from_git(),
+        strategy_manifest_path=str(DEFAULT_STRATEGY_MANIFEST),
     )
     (OUT_DIR / "v204_real_money_readiness_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),

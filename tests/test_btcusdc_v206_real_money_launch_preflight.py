@@ -35,6 +35,7 @@ def _ready_payload() -> dict[str, object]:
             "requires_readiness_source_provenance": True,
             "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
+            "requires_strategy_manifest_hash": True,
         },
         "inputs": {
             "test_input": input_path,
@@ -43,6 +44,7 @@ def _ready_payload() -> dict[str, object]:
             "readiness_source_provenance_clean": True,
             "readiness_runtime_source_hash_clean": True,
             "readiness_input_hashes_clean": True,
+            "strategy_manifest_hash_clean": True,
             "forward_freshness_clean": True,
             "public_data_available": True,
             "execution_validation_passed": True,
@@ -80,6 +82,9 @@ def _ready_payload() -> dict[str, object]:
             "readiness_runtime_source_clean": True,
             "readiness_dirty_runtime_path_count": 0,
             "readiness_dirty_runtime_paths": [],
+            "strategy_manifest_path": input_path,
+            "strategy_manifest_hash": input_hash,
+            "strategy_manifest_hash_clean": True,
             "readiness_input_hashes": {
                 "test_input": input_hash,
             },
@@ -360,6 +365,27 @@ def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> N
     assert payload["decision"]["status"] == "real_money_launch_preflight_passed"
     assert payload["decision"]["allow_real_money_launch"] is True
     assert payload["decision"]["failed_checks"] == []
+
+
+def test_v206_blocks_ready_summary_without_strategy_manifest_hash() -> None:
+    module = _load_module()
+    readiness_payload = _ready_payload()
+    assert isinstance(readiness_payload["config"], dict)
+    assert isinstance(readiness_payload["checks"], dict)
+    assert isinstance(readiness_payload["evidence"], dict)
+    readiness_payload["config"].pop("requires_strategy_manifest_hash", None)
+    readiness_payload["checks"].pop("strategy_manifest_hash_clean", None)
+    readiness_payload["evidence"].pop("strategy_manifest_hash_clean", None)
+    readiness_payload["evidence"].pop("strategy_manifest_hash", None)
+
+    payload = module._preflight_payload(
+        readiness_payload=readiness_payload,
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_strategy_manifest_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v206_versioned_report_omits_commit_specific_sha(tmp_path: Path) -> None:

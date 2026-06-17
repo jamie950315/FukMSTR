@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -421,6 +422,101 @@ def test_real_trade_preflight_blocks_ready_summary_when_input_hash_changes(
 
     assert payload["decision"]["allow_real_money_launch"] is False
     assert "readiness_input_hashes_clean" in payload["decision"]["failed_checks"]
+
+
+def test_real_trade_preflight_blocks_ready_summary_without_strategy_manifest_hash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import lob_microprice_lab.real_money_launch as launch
+
+    input_file = tmp_path / "input.json"
+    input_file.write_text('{"status":"current"}', encoding="utf-8")
+    input_hash = hashlib.sha256(input_file.read_bytes()).hexdigest()
+    monkeypatch.setattr(launch, "_dirty_runtime_paths_from_git", lambda: [])
+    monkeypatch.setattr(launch, "_current_git_commit", lambda: "current-source-commit")
+    monkeypatch.setattr(launch, "_runtime_source_hash_from_git", lambda: "runtime-source-hash")
+    readiness_summary = tmp_path / "ready_without_strategy_manifest.json"
+    readiness_summary.write_text(
+        json.dumps(
+            {
+                "config": {
+                    "min_execution_fills": 30,
+                    "requires_forward_freshness": True,
+                    "requires_public_data_availability": True,
+                    "requires_execution_validation": True,
+                    "requires_execution_provenance": True,
+                    "requires_signal_provenance": True,
+                    "requires_recent_execution_evidence": True,
+                    "requires_paper_shadow_capture_summary": True,
+                    "requires_readiness_source_provenance": True,
+                    "requires_readiness_runtime_source_hash": True,
+                    "requires_readiness_input_hashes": True,
+                },
+                "inputs": {
+                    "test_input": str(input_file),
+                },
+                "checks": {
+                    "forward_freshness_clean": True,
+                    "public_data_available": True,
+                    "execution_validation_passed": True,
+                    "execution_fill_evidence_available": True,
+                    "filled_status_clean": True,
+                    "execution_provenance_clean": True,
+                    "signal_provenance_clean": True,
+                    "execution_slippage_p95_clean": True,
+                    "recent_execution_evidence_clean": True,
+                    "paper_shadow_capture_summary_clean": True,
+                    "execution_kill_switch_tested": True,
+                    "execution_secrets_absent_from_repo": True,
+                    "readiness_source_provenance_clean": True,
+                    "readiness_runtime_source_hash_clean": True,
+                    "readiness_input_hashes_clean": True,
+                },
+                "evidence": {
+                    "forward_freshness_status": "forward_freshness_passed",
+                    "forward_data_current": True,
+                    "fresh_forward_evidence_available": True,
+                    "public_data_status": "public_data_availability_passed",
+                    "public_data_available": True,
+                    "execution_validation_passed": True,
+                    "execution_fill_count": 30,
+                    "execution_fill_evidence_available": True,
+                    "filled_status_clean": True,
+                    "execution_provenance_clean": True,
+                    "signal_provenance_clean": True,
+                    "execution_slippage_p95_clean": True,
+                    "recent_execution_evidence_clean": True,
+                    "paper_shadow_capture_summary_clean": True,
+                    "execution_kill_switch_tested": True,
+                    "execution_secrets_absent_from_repo": True,
+                    "readiness_source_commit": "current-source-commit",
+                    "readiness_runtime_source_hash": "runtime-source-hash",
+                    "readiness_runtime_source_clean": True,
+                    "readiness_dirty_runtime_path_count": 0,
+                    "readiness_dirty_runtime_paths": [],
+                    "readiness_input_hashes": {
+                        "test_input": input_hash,
+                    },
+                },
+                "decision": {
+                    "status": "real_money_ready",
+                    "promote_to_real_money": True,
+                    "failed_checks": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = launch.real_money_launch_preflight(
+        out_dir=tmp_path / "real-money",
+        arm_token=launch.REQUIRED_ARM_TOKEN,
+        readiness_summary=readiness_summary,
+    )
+
+    assert payload["decision"]["allow_real_money_launch"] is False
+    assert "readiness_strategy_manifest_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v142_leverage_policy_applies_5x_only_to_high_confidence_rescue() -> None:
