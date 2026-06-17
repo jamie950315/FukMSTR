@@ -7,6 +7,7 @@
 - Forward evidence available: `False`
 - Allow historical optimization: `False`
 - Freeze timestamp: `2026-06-09 16:40:00+00:00`
+- Freeze manifest clean: `True`
 - Latest timestamp: `2026-06-09 16:40:00+00:00`
 - Forward trade count: `0`
 - Message: No enough post-freeze rows exist; do not claim forward validation and do not resume historical optimization.
@@ -29,6 +30,7 @@
 - V194 remains the aggressive research candidate.
 - Rows at or before the freeze timestamp are historical and cannot validate V194.
 - Historical optimization remains frozen regardless of this monitor's result.
+- The freeze timestamp must match the V224 forward-freeze manifest.
 
 ## Forward Monitoring Table
 

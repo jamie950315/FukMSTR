@@ -12,9 +12,10 @@
 | Check | Passed | Evidence |
 |---|---:|---|
 | Readiness source provenance clean | True | source_commit=recorded_in_summary_json; dirty_runtime_path_count=0 |
-| Readiness runtime source hash clean | True | runtime_source_hash=46786cd68793590cc0072dcf418dc157f32886e32643fe6912fdffde3d444edc |
-| Readiness input hashes clean | True | input_hash_count=7 |
+| Readiness runtime source hash clean | True | runtime_source_hash=475292a78b7959df098cf2a29f1364d404db1b77c8ebeffb32bd19fd6f8499f0 |
+| Readiness input hashes clean | True | input_hash_count=8 |
 | Strategy manifest hash clean | True | manifest_hash=1aece4e916e7723a286db3e82282338a91f4eef248272cb79c3ba2d13b18aee9 |
+| Forward freeze manifest clean | True | status=forward_freeze_manifest_clean; manifest_hash=3c1404a579cc9035c554150b11e391218dd6e87fc88071a08cd2354505c92fbd |
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
 | Forward freshness clean | False | forward_freshness_status=forward_fresh_no_signal; forward_data_current=True; fresh_forward_evidence_available=False |
@@ -43,6 +44,6 @@
 
 ## Interpretation
 
-V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.
+V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, the fixed strategy manifest hash is missing, the forward-freeze manifest hash is missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.
 
 This remains research and safety infrastructure until all gates pass with current evidence.
