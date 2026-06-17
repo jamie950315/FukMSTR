@@ -4,18 +4,18 @@
 
 - Status: `real_money_launch_blocked`
 - Allow real-money launch: `False`
-- Failed checks: `readiness_gate_passed, readiness_forward_freshness_clean, readiness_execution_provenance_clean, explicit_real_money_arm`
+- Failed checks: `readiness_gate_passed, readiness_forward_freshness_clean, readiness_public_data_available, readiness_execution_provenance_clean, explicit_real_money_arm`
 - Message: Do not launch real-money trading. Preflight checks failed.
 
 ## Gate Checks
 
 | Check | Passed | Evidence |
 |---|---:|---|
-| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'execution_validation_passed', 'execution_fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'execution_slippage_p95_clean', 'recent_execution_evidence_clean', 'paper_shadow_capture_summary_clean'] |
+| V204 readiness gate passed | False | status=real_money_blocked; promote_to_real_money=False; failed_checks=['historical_optimization_frozen_clean', 'forward_evidence_available', 'forward_freshness_clean', 'public_data_available', 'execution_validation_passed', 'execution_fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'execution_slippage_p95_clean', 'recent_execution_evidence_clean', 'paper_shadow_capture_summary_clean'] |
 | V212 forward freshness present and passed | False | readiness_forward_freshness_clean=False |
-| V214 public data present and passed | True | readiness_public_data_available=True |
+| V214 public data present and passed | False | readiness_public_data_available=False |
 | V216 execution provenance present and passed | False | readiness_execution_provenance_clean=False |
-| V218/V221 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=recorded_in_summary_json; current_runtime_source_hash=475292a78b7959df098cf2a29f1364d404db1b77c8ebeffb32bd19fd6f8499f0 |
+| V218/V221 readiness source provenance present and current | True | readiness_source_provenance_clean=True; current_source_commit=recorded_in_summary_json; current_runtime_source_hash=ddb2368c7db0f7a14c84e4ed4d539e7eb97fc0e172e37a1be3343e62687318e4 |
 | V219 readiness input hashes present and current | True | readiness_input_hashes_clean=True |
 | V220 recent execution evidence present and current | False | included in readiness_execution_provenance_clean |
 | V222 paper-shadow capture summary present and current | False | included in readiness_execution_provenance_clean |

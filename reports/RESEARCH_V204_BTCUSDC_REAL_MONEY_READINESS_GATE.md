@@ -4,7 +4,7 @@
 
 - Status: `real_money_blocked`
 - Promote to real money: `False`
-- Failed checks: `historical_optimization_frozen_clean, forward_evidence_available, forward_freshness_clean, execution_validation_passed, execution_fill_evidence_available, filled_status_clean, execution_provenance_clean, signal_provenance_clean, execution_slippage_p95_clean, recent_execution_evidence_clean, paper_shadow_capture_summary_clean`
+- Failed checks: `historical_optimization_frozen_clean, forward_evidence_available, forward_freshness_clean, public_data_available, execution_validation_passed, execution_fill_evidence_available, filled_status_clean, execution_provenance_clean, signal_provenance_clean, execution_slippage_p95_clean, recent_execution_evidence_clean, paper_shadow_capture_summary_clean`
 - Message: Do not use with real money. The failed checks must be resolved with new evidence first.
 
 ## Gate Checks
@@ -12,14 +12,14 @@
 | Check | Passed | Evidence |
 |---|---:|---|
 | Readiness source provenance clean | True | source_commit=recorded_in_summary_json; dirty_runtime_path_count=0 |
-| Readiness runtime source hash clean | True | runtime_source_hash=475292a78b7959df098cf2a29f1364d404db1b77c8ebeffb32bd19fd6f8499f0 |
+| Readiness runtime source hash clean | True | runtime_source_hash=ddb2368c7db0f7a14c84e4ed4d539e7eb97fc0e172e37a1be3343e62687318e4 |
 | Readiness input hashes clean | True | input_hash_count=8 |
-| Strategy manifest hash clean | True | manifest_hash=1aece4e916e7723a286db3e82282338a91f4eef248272cb79c3ba2d13b18aee9 |
+| Strategy manifest hash clean | True | manifest_hash=51964655dd6585c64fe97e4efc94438c88778de9d518834993664250f7de04d0 |
 | Forward freeze manifest clean | True | status=forward_freeze_manifest_clean; manifest_hash=3c1404a579cc9035c554150b11e391218dd6e87fc88071a08cd2354505c92fbd |
 | Historical optimization clean | False | overfit_status=post_goal_overfitting_warning; stop_historical_optimization=True |
 | Forward evidence available | False | forward_status=no_forward_evidence; forward_trade_count=0 |
 | Forward freshness clean | False | forward_freshness_status=forward_fresh_no_signal; forward_data_current=True; fresh_forward_evidence_available=False |
-| Public data available | True | public_data_status=public_data_availability_passed; public_data_available=True; failed_checks=[] |
+| Public data available | False | public_data_status=public_data_pending_publication; public_data_available=False; failed_checks=['latest_completed_utc_day_published'] |
 | Realtime smoke clean | True | rejected_signals=0; market_data_errors=0 |
 | Execution validation passed | False | execution_status=execution_validation_missing_evidence; execution_validation_passed=False; failed_checks=['fill_evidence_available', 'filled_status_clean', 'execution_provenance_clean', 'signal_provenance_clean', 'slippage_p95_clean', 'recent_execution_evidence_clean', 'paper_shadow_capture_summary_clean'] |
 | Execution fill evidence available | False | fill_count=0; min_execution_fills=30 |
