@@ -30,6 +30,7 @@ RUNTIME_PREFIXES = (
     "pyproject.toml",
     "requirements.txt",
 )
+REPORT_SOURCE_COMMIT_NOTE = "recorded_in_summary_json"
 
 
 def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -334,7 +335,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "| Check | Passed | Evidence |",
         "|---|---:|---|",
-        f"| Readiness source provenance clean | {checks['readiness_source_provenance_clean']} | source_commit={evidence['readiness_source_commit']}; dirty_runtime_path_count={evidence['readiness_dirty_runtime_path_count']} |",
+        f"| Readiness source provenance clean | {checks['readiness_source_provenance_clean']} | source_commit={REPORT_SOURCE_COMMIT_NOTE}; dirty_runtime_path_count={evidence['readiness_dirty_runtime_path_count']} |",
         f"| Readiness runtime source hash clean | {checks['readiness_runtime_source_hash_clean']} | runtime_source_hash={evidence['readiness_runtime_source_hash']} |",
         f"| Readiness input hashes clean | {checks['readiness_input_hashes_clean']} | input_hash_count={len(evidence['readiness_input_hashes'])} |",
         f"| Historical optimization clean | {checks['historical_optimization_frozen_clean']} | overfit_status={evidence['overfit_status']}; stop_historical_optimization={evidence['stop_historical_optimization']} |",

@@ -386,3 +386,26 @@ def test_v204_passes_only_when_all_real_money_gates_are_clean() -> None:
     assert payload["decision"]["failed_checks"] == []
     assert payload["config"]["requires_readiness_runtime_source_hash"] is True
     assert payload["evidence"]["readiness_runtime_source_hash"] == "runtime-source-hash"
+
+
+def test_v204_versioned_report_omits_commit_specific_sha(tmp_path: Path) -> None:
+    module = _load_module()
+    payload = module._payload_for_readiness(
+        overfit_payload={"decision": {"status": "post_goal_overfitting_warning", "stop_historical_optimization": True}},
+        forward_payload={"decision": {"status": "no_forward_evidence", "forward_evidence_available": False}},
+        realtime_summary={"rejected_signals": 0, "market_data_errors": 0},
+        execution_payload=_execution_payload(),
+        forward_freshness_payload={"decision": {"status": "forward_fresh_no_signal"}},
+        public_data_payload=_public_data_payload(),
+        source_commit="dynamic-report-commit-sha",
+        readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="stable-runtime-source-hash",
+    )
+    module.REPORT_PATH = tmp_path / "v204_report.md"
+
+    module._write_report(payload)
+
+    text = module.REPORT_PATH.read_text(encoding="utf-8")
+    assert "dynamic-report-commit-sha" not in text
+    assert "source_commit=recorded_in_summary_json" in text
+    assert "stable-runtime-source-hash" in text

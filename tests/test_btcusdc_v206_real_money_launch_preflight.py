@@ -360,3 +360,23 @@ def test_v206_passes_only_when_readiness_arm_and_runtime_source_are_clean() -> N
     assert payload["decision"]["status"] == "real_money_launch_preflight_passed"
     assert payload["decision"]["allow_real_money_launch"] is True
     assert payload["decision"]["failed_checks"] == []
+
+
+def test_v206_versioned_report_omits_commit_specific_sha(tmp_path: Path) -> None:
+    module = _load_module()
+    payload = module._preflight_payload(
+        readiness_payload=_ready_payload(),
+        arm_token=module.REQUIRED_ARM_TOKEN,
+        dirty_runtime_paths=[],
+        current_source_commit="dynamic-report-commit-sha",
+        current_runtime_source_hash="runtime-source-hash",
+        readiness_source_commit_is_ancestor=True,
+    )
+    module.REPORT_PATH = tmp_path / "v206_report.md"
+
+    module._write_report(payload)
+
+    text = module.REPORT_PATH.read_text(encoding="utf-8")
+    assert "dynamic-report-commit-sha" not in text
+    assert "current_source_commit=recorded_in_summary_json" in text
+    assert "runtime-source-hash" in text

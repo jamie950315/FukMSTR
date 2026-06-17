@@ -21,6 +21,7 @@ RUNTIME_PREFIXES = (
     "pyproject.toml",
     "requirements.txt",
 )
+REPORT_SOURCE_COMMIT_NOTE = "recorded_in_summary_json"
 
 
 def _decision(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -389,7 +390,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| V212 forward freshness present and passed | {checks['readiness_forward_freshness_clean']} | readiness_forward_freshness_clean={evidence['readiness_forward_freshness_clean']} |",
         f"| V214 public data present and passed | {checks['readiness_public_data_available']} | readiness_public_data_available={evidence['readiness_public_data_available']} |",
         f"| V216 execution provenance present and passed | {checks['readiness_execution_provenance_clean']} | readiness_execution_provenance_clean={evidence['readiness_execution_provenance_clean']} |",
-        f"| V218/V221 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={evidence['current_source_commit']}; current_runtime_source_hash={evidence['current_runtime_source_hash']} |",
+        f"| V218/V221 readiness source provenance present and current | {checks['readiness_source_provenance_clean']} | readiness_source_provenance_clean={evidence['readiness_source_provenance_clean']}; current_source_commit={REPORT_SOURCE_COMMIT_NOTE}; current_runtime_source_hash={evidence['current_runtime_source_hash']} |",
         f"| V219 readiness input hashes present and current | {checks['readiness_input_hashes_clean']} | readiness_input_hashes_clean={evidence['readiness_input_hashes_clean']} |",
         f"| V220 recent execution evidence present and current | {checks['readiness_execution_provenance_clean']} | included in readiness_execution_provenance_clean |",
         f"| V222 paper-shadow capture summary present and current | {checks['readiness_execution_provenance_clean']} | included in readiness_execution_provenance_clean |",
