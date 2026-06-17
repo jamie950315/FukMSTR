@@ -54,6 +54,7 @@ def _write_report(payload: dict[str, Any], *, report_path: Path) -> None:
         f"| Fill evidence available | {checks['fill_evidence_available']} | fill_count={evidence['fill_count']}; missing_base_columns={evidence['missing_base_fill_columns']} |",
         f"| Execution provenance clean | {checks['execution_provenance_clean']} | missing_provenance_columns={evidence['missing_provenance_columns']} |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} | missing_signal_provenance_columns={evidence['missing_signal_provenance_columns']} |",
+        f"| Paper-shadow capture summary clean | {checks['paper_shadow_capture_summary_clean']} | status={evidence['paper_shadow_capture_summary_status']}; reason={evidence['paper_shadow_capture_summary_reason']} |",
         f"| Filled status clean | {checks['filled_status_clean']} | requires every fill status to be `filled` |",
         f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
         f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
@@ -87,16 +88,21 @@ def run(
     *,
     fills_path: Path | None = None,
     kill_switch_path: Path | None = None,
+    capture_summary_path: Path | None = None,
     out_dir: Path = OUT_DIR,
     report_path: Path = REPORT_PATH,
 ) -> dict[str, Any]:
     v205 = _load_v205_module()
     fills_path = Path(fills_path) if fills_path is not None else v205.DEFAULT_FILLS
     kill_switch_path = Path(kill_switch_path) if kill_switch_path is not None else v205.DEFAULT_KILL_SWITCH_EVENTS
+    capture_summary_path = (
+        Path(capture_summary_path) if capture_summary_path is not None else v205.DEFAULT_CAPTURE_SUMMARY
+    )
     v205_payload = v205._execution_validation_payload(
         fills=v205._read_csv_or_empty(fills_path),
         kill_switch_events=v205._read_csv_or_empty(kill_switch_path),
         secret_findings=v205._scan_repo_for_secret_findings(),
+        capture_summary=v205._read_json_or_empty(capture_summary_path),
     )
     status = _status_from_v205(v205_payload)
     passed = status == "execution_provenance_passed"
@@ -113,6 +119,7 @@ def run(
         "inputs": {
             "fill_audit_csv": str(fills_path),
             "kill_switch_event_csv": str(kill_switch_path),
+            "capture_summary_json": str(capture_summary_path),
         },
         "evidence": v205_payload["evidence"],
         "checks": v205_payload["checks"],
@@ -142,11 +149,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate BTCUSDC execution evidence provenance for real-money readiness.")
     parser.add_argument("--fills", default=None)
     parser.add_argument("--kill-switch-events", default=None)
+    parser.add_argument("--capture-summary", default=None)
     parser.add_argument("--out", default=str(OUT_DIR))
     args = parser.parse_args()
     payload = run(
         fills_path=Path(args.fills) if args.fills else None,
         kill_switch_path=Path(args.kill_switch_events) if args.kill_switch_events else None,
+        capture_summary_path=Path(args.capture_summary) if args.capture_summary else None,
         out_dir=Path(args.out),
     )
     print(json.dumps(payload["decision"], indent=2, sort_keys=True))

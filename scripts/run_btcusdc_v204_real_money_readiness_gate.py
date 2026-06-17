@@ -219,6 +219,7 @@ def _payload_for_readiness(
             and execution_slippage <= MAX_EXECUTION_SLIPPAGE_BPS_P95
         ),
         "recent_execution_evidence_clean": execution_checks.get("recent_execution_evidence_clean") is True,
+        "paper_shadow_capture_summary_clean": execution_checks.get("paper_shadow_capture_summary_clean") is True,
         "execution_kill_switch_tested": (
             execution_checks.get("kill_switch_tested") is True
             and execution.get("kill_switch_tested") is True
@@ -245,6 +246,7 @@ def _payload_for_readiness(
             "requires_execution_provenance": True,
             "requires_signal_provenance": True,
             "requires_recent_execution_evidence": True,
+            "requires_paper_shadow_capture_summary": True,
             "requires_readiness_source_provenance": True,
             "requires_readiness_runtime_source_hash": True,
             "requires_readiness_input_hashes": True,
@@ -282,6 +284,9 @@ def _payload_for_readiness(
             "recent_execution_evidence_clean": execution_checks.get("recent_execution_evidence_clean"),
             "latest_execution_timestamp": execution_evidence.get("latest_execution_timestamp"),
             "execution_evidence_age_days": execution_evidence.get("execution_evidence_age_days"),
+            "paper_shadow_capture_summary_clean": execution_checks.get("paper_shadow_capture_summary_clean"),
+            "paper_shadow_capture_summary_status": execution_evidence.get("paper_shadow_capture_summary_status"),
+            "paper_shadow_capture_summary_reason": execution_evidence.get("paper_shadow_capture_summary_reason"),
             "execution_kill_switch_tested": execution_checks.get("kill_switch_tested"),
             "execution_secrets_absent_from_repo": execution_checks.get("secrets_absent_from_repo"),
             "readiness_source_commit": source_commit,
@@ -344,6 +349,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         f"| Signal provenance clean | {checks['signal_provenance_clean']} | signal_provenance_clean={evidence['signal_provenance_clean']} |",
         f"| Execution slippage p95 clean | {checks['execution_slippage_p95_clean']} | max_slippage_bps_p95={evidence['max_slippage_bps_p95']}; slippage_p95_clean={evidence['execution_slippage_p95_clean']} |",
         f"| Recent execution evidence clean | {checks['recent_execution_evidence_clean']} | latest_execution_timestamp={evidence['latest_execution_timestamp']}; execution_evidence_age_days={evidence['execution_evidence_age_days']} |",
+        f"| Paper-shadow capture summary clean | {checks['paper_shadow_capture_summary_clean']} | status={evidence['paper_shadow_capture_summary_status']}; reason={evidence['paper_shadow_capture_summary_reason']} |",
         f"| Execution kill switch tested | {checks['execution_kill_switch_tested']} | kill_switch_tested={evidence['kill_switch_tested']}; execution_check={evidence['execution_kill_switch_tested']} |",
         f"| Execution secrets absent | {checks['execution_secrets_absent_from_repo']} | secrets_present_in_repo={evidence['secrets_present_in_repo']}; execution_check={evidence['execution_secrets_absent_from_repo']} |",
         "",
@@ -359,7 +365,7 @@ def _write_report(payload: dict[str, Any]) -> None:
         "",
         "## Interpretation",
         "",
-        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, or missing execution/signal provenance are present.",
+        "V204 is an admission gate, not a new trading strategy. It blocks real-money use when source provenance is missing, runtime source hashes are missing, input evidence hashes are missing, historical overfitting risk, missing forward evidence, missing forward freshness, incomplete public data, realtime smoke errors, missing execution validation, stale execution evidence, missing paper-shadow capture provenance, or missing execution/signal provenance are present.",
         "",
         "This remains research and safety infrastructure until all gates pass with current evidence.",
         "",

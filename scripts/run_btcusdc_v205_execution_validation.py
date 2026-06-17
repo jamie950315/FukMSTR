@@ -16,6 +16,9 @@ OUT_DIR = ROOT / "runs" / "research_v204_real_money_execution_validation"
 REPORT_PATH = ROOT / "reports" / "RESEARCH_V205_BTCUSDC_EXECUTION_VALIDATION.md"
 DEFAULT_FILLS = ROOT / "runs" / "research_v205_execution_validation" / "fill_audit.csv"
 DEFAULT_KILL_SWITCH_EVENTS = ROOT / "runs" / "research_v205_execution_validation" / "kill_switch_events.csv"
+DEFAULT_CAPTURE_SUMMARY = (
+    ROOT / "runs" / "research_v210_paper_shadow_fill_capture" / "v210_paper_shadow_fill_capture_summary.json"
+)
 
 MIN_EXECUTION_FILLS = 30
 MAX_SLIPPAGE_BPS_P95 = 5.0
@@ -54,6 +57,12 @@ def _read_csv_or_empty(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
+
+
+def _read_json_or_empty(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _slippage_bps(fills: pd.DataFrame) -> pd.Series:
@@ -147,12 +156,56 @@ def _recent_execution_evidence_clean(
     )
 
 
+def _paper_shadow_capture_summary_clean(
+    fills: pd.DataFrame,
+    *,
+    fill_evidence_available: bool,
+    capture_summary: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    if not fill_evidence_available or "execution_mode" not in fills.columns:
+        return False, "fill_evidence_unavailable"
+    execution_modes = fills["execution_mode"].astype(str).str.strip().str.lower()
+    if not execution_modes.eq("paper_shadow_live").any():
+        return True, "not_required_for_non_paper_shadow"
+    if not isinstance(capture_summary, dict):
+        return False, "missing_capture_summary"
+    config = capture_summary.get("config", {})
+    evidence = capture_summary.get("evidence", {})
+    decision = capture_summary.get("decision", {})
+    outputs = capture_summary.get("outputs", {})
+    if not (
+        isinstance(config, dict)
+        and isinstance(evidence, dict)
+        and isinstance(decision, dict)
+        and isinstance(outputs, dict)
+    ):
+        return False, "malformed_capture_summary"
+    capture_ids = set(fills["capture_id"].astype(str).str.strip()) if "capture_id" in fills.columns else set()
+    evidence_sources = set(fills["evidence_source"].astype(str).str.strip()) if "evidence_source" in fills.columns else set()
+    if len(capture_ids) != 1 or config.get("capture_id") not in capture_ids:
+        return False, "capture_id_mismatch"
+    if len(evidence_sources) != 1 or config.get("evidence_source") not in evidence_sources:
+        return False, "evidence_source_mismatch"
+    if int(evidence.get("fill_count", -1) or -1) != int(len(fills)):
+        return False, "fill_count_mismatch"
+    if decision.get("status") != "paper_shadow_fill_capture_ready_for_v205":
+        return False, "capture_not_ready_for_v205"
+    if decision.get("places_live_orders") is not False or config.get("places_live_orders") is not False:
+        return False, "capture_places_live_orders"
+    if decision.get("failed_checks"):
+        return False, "capture_failed_checks"
+    if not outputs.get("fill_audit_csv"):
+        return False, "missing_fill_audit_output"
+    return True, "paper_shadow_capture_summary_clean"
+
+
 def _execution_validation_payload(
     *,
     fills: pd.DataFrame,
     kill_switch_events: pd.DataFrame,
     secret_findings: list[dict[str, Any]],
     validation_time: pd.Timestamp | None = None,
+    capture_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     generated_at = validation_time or pd.Timestamp.now(tz=UTC)
     fill_count = int(len(fills))
@@ -177,6 +230,11 @@ def _execution_validation_payload(
             validation_time=pd.Timestamp(generated_at),
         )
     )
+    paper_shadow_capture_summary_clean, paper_shadow_capture_summary_reason = _paper_shadow_capture_summary_clean(
+        fills,
+        fill_evidence_available=fill_evidence_available,
+        capture_summary=capture_summary,
+    )
     kill_switch_tested = _kill_switch_tested(kill_switch_events)
     secrets_present = bool(secret_findings)
 
@@ -187,6 +245,7 @@ def _execution_validation_payload(
         "signal_provenance_clean": signal_provenance_clean,
         "slippage_p95_clean": slippage_clean,
         "recent_execution_evidence_clean": recent_execution_evidence_clean,
+        "paper_shadow_capture_summary_clean": paper_shadow_capture_summary_clean,
         "kill_switch_tested": kill_switch_tested,
         "secrets_absent_from_repo": not secrets_present,
     }
@@ -201,6 +260,7 @@ def _execution_validation_payload(
             "min_execution_fills": MIN_EXECUTION_FILLS,
             "max_slippage_bps_p95": MAX_SLIPPAGE_BPS_P95,
             "max_execution_evidence_age_days": MAX_EXECUTION_EVIDENCE_AGE_DAYS,
+            "requires_paper_shadow_capture_summary": True,
             "changes_strategy_thresholds": False,
             "places_live_orders": False,
         },
@@ -213,6 +273,12 @@ def _execution_validation_payload(
             "missing_signal_provenance_columns": missing_signal_provenance_columns,
             "latest_execution_timestamp": latest_execution_timestamp,
             "execution_evidence_age_days": execution_evidence_age_days,
+            "paper_shadow_capture_summary_reason": paper_shadow_capture_summary_reason,
+            "paper_shadow_capture_summary_status": (
+                capture_summary.get("decision", {}).get("status", "missing")
+                if isinstance(capture_summary, dict) and isinstance(capture_summary.get("decision"), dict)
+                else "missing"
+            ),
             "kill_switch_event_count": int(len(kill_switch_events)),
             "secret_finding_count": int(len(secret_findings)),
         },
@@ -297,6 +363,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Signal provenance clean | {checks['signal_provenance_clean']} | missing_signal_provenance_columns={evidence['missing_signal_provenance_columns']}; blocks manual, synthetic, backtest, unknown, or blank signal/market sources |",
         f"| Slippage p95 clean | {checks['slippage_p95_clean']} | max_slippage_bps_p95={decision['max_slippage_bps_p95']} |",
         f"| Recent execution evidence clean | {checks['recent_execution_evidence_clean']} | latest_execution_timestamp={evidence['latest_execution_timestamp']}; execution_evidence_age_days={evidence['execution_evidence_age_days']}; max_age_days={payload['config']['max_execution_evidence_age_days']} |",
+        f"| Paper-shadow capture summary clean | {checks['paper_shadow_capture_summary_clean']} | status={evidence['paper_shadow_capture_summary_status']}; reason={evidence['paper_shadow_capture_summary_reason']} |",
         f"| Kill switch tested | {checks['kill_switch_tested']} | kill_switch_event_count={evidence['kill_switch_event_count']} |",
         f"| Secrets absent from repo | {checks['secrets_absent_from_repo']} | secret_finding_count={evidence['secret_finding_count']} |",
         "",
@@ -314,6 +381,7 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         f"| Execution provenance clean | {checks['execution_provenance_clean']} |",
         f"| Signal provenance clean | {checks['signal_provenance_clean']} |",
         f"| Recent execution evidence clean | {checks['recent_execution_evidence_clean']} |",
+        f"| Paper-shadow capture summary clean | {checks['paper_shadow_capture_summary_clean']} |",
         f"| Kill switch tested | {decision['kill_switch_tested']} |",
         f"| Secrets present in repo | {decision['secrets_present_in_repo']} |",
         "",
@@ -321,19 +389,25 @@ def _write_report(payload: dict[str, Any], *, fills_path: Path, kill_switch_path
         "",
         "V205 does not place live orders and does not change the trading strategy. It only validates whether external execution evidence is strong enough for V204 to consider the execution gate.",
         "",
-        "This remains blocked for real-money use until clean fill evidence, order-level execution provenance, a tested kill switch, and a clean secret scan are all present.",
+        "This remains blocked for real-money use until clean fill evidence, order-level execution provenance, paper-shadow capture provenance where applicable, a tested kill switch, and a clean secret scan are all present.",
         "",
     ]
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run(*, fills_path: Path = DEFAULT_FILLS, kill_switch_path: Path = DEFAULT_KILL_SWITCH_EVENTS) -> dict[str, Any]:
+def run(
+    *,
+    fills_path: Path = DEFAULT_FILLS,
+    kill_switch_path: Path = DEFAULT_KILL_SWITCH_EVENTS,
+    capture_summary_path: Path = DEFAULT_CAPTURE_SUMMARY,
+) -> dict[str, Any]:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = _execution_validation_payload(
         fills=_read_csv_or_empty(fills_path),
         kill_switch_events=_read_csv_or_empty(kill_switch_path),
         secret_findings=_scan_repo_for_secret_findings(),
+        capture_summary=_read_json_or_empty(capture_summary_path),
     )
     (OUT_DIR / "execution_validation_summary.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True),
@@ -347,8 +421,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate BTCUSDC execution evidence for real-money readiness gates.")
     parser.add_argument("--fills", default=str(DEFAULT_FILLS))
     parser.add_argument("--kill-switch-events", default=str(DEFAULT_KILL_SWITCH_EVENTS))
+    parser.add_argument("--capture-summary", default=str(DEFAULT_CAPTURE_SUMMARY))
     args = parser.parse_args()
-    payload = run(fills_path=Path(args.fills), kill_switch_path=Path(args.kill_switch_events))
+    payload = run(
+        fills_path=Path(args.fills),
+        kill_switch_path=Path(args.kill_switch_events),
+        capture_summary_path=Path(args.capture_summary),
+    )
     print(json.dumps(payload["decision"], indent=2, sort_keys=True))
 
 

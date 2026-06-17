@@ -40,6 +40,8 @@ Allowed execution modes are:
 
 Synthetic, backtest, manual, unknown, or blank evidence sources are not accepted.
 
+For `paper_shadow_live` fills, V209 inherits V205's V222 requirement: the fill audit must be backed by a matching V210 capture summary.
+
 ## Full Verification
 
 ```bash

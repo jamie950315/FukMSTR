@@ -1318,6 +1318,9 @@ test-btcusdc-v220:
 test-btcusdc-v221:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v204_real_money_readiness_gate.py tests/test_btcusdc_v206_real_money_launch_preflight.py tests/test_paper_trading_v142.py::test_real_trade_preflight_blocks_ready_summary_from_different_source_commit tests/test_paper_trading_v142.py::test_real_trade_preflight_blocks_ready_summary_when_input_hash_changes tests/test_paper_trading_v142.py::test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready
 
+test-btcusdc-v222:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_btcusdc_v204_real_money_readiness_gate.py tests/test_btcusdc_v205_execution_validation.py tests/test_btcusdc_v206_real_money_launch_preflight.py tests/test_btcusdc_v209_execution_provenance_gate.py tests/test_btcusdc_v210_paper_shadow_fill_capture.py tests/test_paper_trading_v142.py::test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready
+
 paper-trade-v142-demo:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_demo --source synthetic --ticks 5 --interval-sec 60 --clean --no-sleep
 

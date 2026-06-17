@@ -37,6 +37,7 @@ def _execution_payload() -> dict[str, object]:
             "signal_provenance_clean": True,
             "slippage_p95_clean": True,
             "recent_execution_evidence_clean": True,
+            "paper_shadow_capture_summary_clean": True,
             "kill_switch_tested": True,
             "secrets_absent_from_repo": True,
         },
@@ -52,6 +53,7 @@ def _execution_payload() -> dict[str, object]:
             "fill_count": 30,
             "latest_execution_timestamp": "2026-06-16T00:31:00+00:00",
             "execution_evidence_age_days": 1.0,
+            "paper_shadow_capture_summary_clean": True,
         },
     }
 
@@ -87,6 +89,7 @@ def test_v204_blocks_real_money_when_overfit_or_forward_evidence_fails() -> None
         },
         public_data_payload=_public_data_payload(),
         readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
     )
 
     assert payload["decision"]["status"] == "real_money_blocked"
@@ -127,6 +130,7 @@ def test_v204_requires_execution_validation_even_when_research_checks_pass() -> 
         },
         public_data_payload=_public_data_payload(),
         readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
     )
 
     assert payload["decision"]["promote_to_real_money"] is False
@@ -213,11 +217,54 @@ def test_v204_blocks_legacy_execution_summary_without_recency_check() -> None:
         },
         public_data_payload=_public_data_payload(),
         readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
     )
 
     assert payload["decision"]["status"] == "real_money_blocked"
     assert payload["decision"]["promote_to_real_money"] is False
     assert "recent_execution_evidence_clean" in payload["decision"]["failed_checks"]
+
+
+def test_v204_blocks_execution_summary_without_paper_shadow_capture_summary() -> None:
+    module = _load_module()
+    execution_payload = _execution_payload()
+    assert isinstance(execution_payload["checks"], dict)
+    del execution_payload["checks"]["paper_shadow_capture_summary_clean"]
+
+    payload = module._payload_for_readiness(
+        overfit_payload={
+            "decision": {
+                "status": "post_goal_overfitting_not_detected",
+                "stop_historical_optimization": False,
+            }
+        },
+        forward_payload={
+            "decision": {
+                "status": "forward_evidence_available",
+                "forward_evidence_available": True,
+                "forward_trade_count": 30,
+            }
+        },
+        realtime_summary={
+            "rejected_signals": 0,
+            "market_data_errors": 0,
+        },
+        execution_payload=execution_payload,
+        forward_freshness_payload={
+            "decision": {
+                "status": "forward_freshness_passed",
+                "forward_data_current": True,
+                "forward_evidence_available": True,
+            }
+        },
+        public_data_payload=_public_data_payload(),
+        readiness_input_hashes={"test_input": "test_hash"},
+        readiness_runtime_source_hash="runtime-source-hash",
+    )
+
+    assert payload["decision"]["status"] == "real_money_blocked"
+    assert payload["decision"]["promote_to_real_money"] is False
+    assert "paper_shadow_capture_summary_clean" in payload["decision"]["failed_checks"]
 
 
 def test_v204_requires_v212_forward_freshness_even_when_legacy_forward_gate_passes() -> None:
