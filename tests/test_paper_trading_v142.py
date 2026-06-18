@@ -935,6 +935,67 @@ def test_dashboard_state_includes_realtime_kline_technical_analysis_and_patterns
     assert any("timestamp" in row and "label" in row and "price" in row for row in chart["patterns"])
 
 
+def test_dashboard_state_rebuckets_kline_for_selected_time_window(tmp_path: Path) -> None:
+    run_dir = tmp_path / "paper"
+    run_dir.mkdir()
+    pd.DataFrame(
+        [
+            {
+                "timestamp": (pd.Timestamp("2026-01-01T00:00:00Z") + pd.Timedelta(minutes=i)).isoformat(),
+                "event_type": "snapshot",
+                "symbol": "BTCUSDC",
+                "price": 100.0 + i,
+                "equity_usdc": 10_000 + i,
+                "drawdown_pct": 0,
+                "open_positions": 0,
+                "source": "test",
+            }
+            for i in range(12)
+        ]
+    ).to_csv(run_dir / "balance.csv", index=False)
+
+    one_minute = build_dashboard_state(run_dir=run_dir, symbol="BTCUSDC", limit=80, interval_seconds=60)
+    five_minutes = build_dashboard_state(run_dir=run_dir, symbol="BTCUSDC", limit=80, interval_seconds=300)
+
+    assert one_minute["technical_chart"]["bucket_seconds"] == 60
+    assert five_minutes["technical_chart"]["bucket_seconds"] == 300
+    assert len(one_minute["technical_chart"]["candles"]) == 12
+    assert len(five_minutes["technical_chart"]["candles"]) == 3
+    assert five_minutes["technical_chart"]["candles"][0]["open"] == pytest.approx(100.0)
+    assert five_minutes["technical_chart"]["candles"][0]["close"] == pytest.approx(104.0)
+
+
+def test_dashboard_api_accepts_kline_interval_query(tmp_path: Path) -> None:
+    run_dir = tmp_path / "paper"
+    run_dir.mkdir()
+    pd.DataFrame(
+        [
+            {
+                "timestamp": (pd.Timestamp("2026-01-01T00:00:00Z") + pd.Timedelta(minutes=i)).isoformat(),
+                "event_type": "snapshot",
+                "symbol": "BTCUSDC",
+                "price": 100.0 + i,
+                "equity_usdc": 10_000 + i,
+                "drawdown_pct": 0,
+                "open_positions": 0,
+                "source": "test",
+            }
+            for i in range(10)
+        ]
+    ).to_csv(run_dir / "balance.csv", index=False)
+    server = make_dashboard_server(run_dir=run_dir, symbol="BTCUSDC", host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        payload = json.loads(urlopen(f"{base_url}/api/state?limit=80&interval=300", timeout=5).read().decode("utf-8"))
+        assert payload["technical_chart"]["bucket_seconds"] == 300
+        assert len(payload["technical_chart"]["candles"]) == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_dashboard_html_contains_kline_canvas_and_pattern_panel(tmp_path: Path) -> None:
     server = make_dashboard_server(
         run_dir=tmp_path,
@@ -951,8 +1012,17 @@ def test_dashboard_html_contains_kline_canvas_and_pattern_panel(tmp_path: Path) 
         html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
         assert "Realtime K Graph" in html
         assert 'id="kline"' in html
+        assert 'id="fitKline"' in html
+        assert 'id="klineWindow"' in html
+        assert 'data-interval="60"' in html
+        assert 'data-interval="300"' in html
+        assert 'data-interval="900"' in html
+        assert 'data-interval="3600"' in html
         assert 'id="patterns"' in html
         assert "drawKline" in html
+        assert "selectedInterval" in html
+        assert "wheel" in html
+        assert "pointerdown" in html
     finally:
         server.shutdown()
         server.server_close()

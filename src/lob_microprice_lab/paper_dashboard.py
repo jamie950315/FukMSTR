@@ -15,6 +15,9 @@ import pandas as pd
 
 from .data_schema import parse_timestamp_series
 
+SUPPORTED_KLINE_INTERVAL_SECONDS = {60, 300, 900, 3600}
+DEFAULT_KLINE_INTERVAL_SECONDS = 60
+
 
 def request_kill_switch(run_dir: str | Path, *, reason: str = "manual_dashboard") -> Path:
     out = Path(run_dir)
@@ -50,6 +53,7 @@ def build_dashboard_state(
     book_csv: str | Path | None = None,
     symbol: str = "BTCUSDC",
     limit: int = 80,
+    interval_seconds: int = DEFAULT_KLINE_INTERVAL_SECONDS,
 ) -> dict[str, Any]:
     out = Path(run_dir)
     summary = _read_json(out / "summary.json")
@@ -60,7 +64,7 @@ def build_dashboard_state(
     orders = _read_csv_records(out / "order_events.csv", limit=limit)
     decisions = _read_csv_records(out / "decisions.csv", limit=limit)
     market = _market_state(symbol=symbol, balance=balance, book_csv=book_csv)
-    technical_chart = build_technical_chart(balance, bucket_seconds=60)
+    technical_chart = build_technical_chart(balance, bucket_seconds=_coerce_kline_interval_seconds(interval_seconds))
     return {
         "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "run_dir": str(out),
@@ -184,7 +188,14 @@ def make_dashboard_server(
             if parsed.path == "/api/state":
                 query = parse_qs(parsed.query)
                 row_limit = int(query.get("limit", ["80"])[0])
-                state = build_dashboard_state(run_dir=run_path, book_csv=book_path, symbol=symbol, limit=row_limit)
+                interval_seconds = _coerce_kline_interval_seconds(query.get("interval", ["60"])[0])
+                state = build_dashboard_state(
+                    run_dir=run_path,
+                    book_csv=book_path,
+                    symbol=symbol,
+                    limit=row_limit,
+                    interval_seconds=interval_seconds,
+                )
                 self._send_json(state)
                 return
             self.send_error(404)
@@ -267,6 +278,16 @@ def make_dashboard_server(
             return False
 
     return ThreadingHTTPServer((host, int(port)), Handler)
+
+
+def _coerce_kline_interval_seconds(value: object) -> int:
+    try:
+        interval = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_KLINE_INTERVAL_SECONDS
+    if interval in SUPPORTED_KLINE_INTERVAL_SECONDS:
+        return interval
+    return DEFAULT_KLINE_INTERVAL_SECONDS
 
 
 def _market_state(*, symbol: str, balance: list[dict[str, Any]], book_csv: str | Path | None) -> dict[str, Any]:
@@ -649,6 +670,14 @@ th {{ color:var(--muted); font-weight:400; }}
 .stack {{ display:grid; gap:10px; }}
 .chart {{ width:100%; height:260px; }}
 .kline {{ width:100%; height:520px; }}
+.chart-toolbar {{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; flex-wrap:wrap; }}
+.timeframes {{ display:flex; gap:6px; flex-wrap:wrap; }}
+.tf-btn {{ min-width:48px; padding:7px 10px; color:var(--muted); }}
+.tf-btn.active {{ color:var(--text); border-color:#4fa3ff; background:#142237; }}
+.chart-actions {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
+.kline-wrap {{ position:relative; width:100%; }}
+.kline-tooltip {{ position:absolute; pointer-events:none; display:none; min-width:190px; max-width:260px; padding:8px; border:1px solid var(--line); border-radius:6px; background:rgba(11,15,20,.94); color:var(--text); font-size:12px; line-height:1.45; box-shadow:0 10px 24px rgba(0,0,0,.32); }}
+.kline-hint {{ color:var(--muted); font-size:11px; margin-top:6px; }}
 .pattern-list {{ display:grid; gap:6px; max-height:240px; overflow:auto; }}
 .pattern-item {{ border:1px solid var(--line); border-radius:6px; padding:7px; }}
 .pattern-item strong {{ display:block; font-size:12px; }}
@@ -679,7 +708,25 @@ th {{ color:var(--muted); font-weight:400; }}
     <section><div class="section-title"><span>Account</span></div><div class="content grid" id="account"></div></section>
   </div>
   <div class="stack">
-    <section><div class="section-title"><span>Realtime K Graph</span><span>SMA / EMA / BB / RSI / MACD / Patterns</span></div><div class="content"><canvas class="kline" id="kline"></canvas></div></section>
+    <section><div class="section-title"><span>Realtime K Graph</span><span>SMA / EMA / BB / RSI / MACD / Patterns</span></div><div class="content">
+      <div class="chart-toolbar">
+        <div class="timeframes" id="klineTimeframes" aria-label="K-line timeframe">
+          <button class="tf-btn active" data-interval="60">1m</button>
+          <button class="tf-btn" data-interval="300">5m</button>
+          <button class="tf-btn" data-interval="900">15m</button>
+          <button class="tf-btn" data-interval="3600">1h</button>
+        </div>
+        <div class="chart-actions">
+          <span class="status" id="klineWindow">latest</span>
+          <button id="fitKline">Fit</button>
+        </div>
+      </div>
+      <div class="kline-wrap">
+        <canvas class="kline" id="kline"></canvas>
+        <div class="kline-tooltip" id="klineTooltip"></div>
+      </div>
+      <div class="kline-hint">Drag to pan. Wheel to scroll. Ctrl/Cmd + wheel to zoom.</div>
+    </div></section>
     <section><div class="section-title"><span>Equity</span></div><div class="content"><canvas class="chart" id="equity"></canvas></div></section>
     <section><div class="section-title"><span>Positions</span></div><div class="content"><div id="positions"></div></div></section>
     <section><div class="section-title"><span>Current Paper Orders</span></div><div class="content"><div id="orders"></div></div></section>
@@ -722,36 +769,77 @@ function drawEquity(rows) {{
   }});
   ctx.stroke();
 }}
+let selectedInterval = 60;
+let lastChart = null;
+let klineView = {{ start:0, size:90, pinned:true }};
+let klineDrag = null;
+let klineCrosshair = null;
+const intervalLabels = {{ 60:'1m', 300:'5m', 900:'15m', 3600:'1h' }};
+function resetKlineView() {{
+  klineView = {{ start:0, size:90, pinned:true }};
+  klineCrosshair = null;
+  drawKline(lastChart || {{}});
+}}
+function clampKlineView(total) {{
+  const size = Math.max(12, Math.min(klineView.size || 90, Math.max(total, 12), 180));
+  let start = klineView.pinned ? Math.max(0, total - size) : Math.max(0, Math.min(klineView.start || 0, Math.max(0, total - size)));
+  klineView = {{ ...klineView, start, size }};
+  return {{ start, end:Math.min(total, start + size), size }};
+}}
+function setIntervalWindow(interval) {{
+  selectedInterval = Number(interval) || 60;
+  document.querySelectorAll('.tf-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.interval) === selectedInterval));
+  resetKlineView();
+  refresh();
+}}
 function drawKline(chart) {{
+  lastChart = chart || {{}};
   const c = document.getElementById('kline');
+  const tip = document.getElementById('klineTooltip');
   const ctx = c.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr; ctx.scale(dpr, dpr);
+  c.width = Math.max(1, c.clientWidth * dpr); c.height = Math.max(1, c.clientHeight * dpr); ctx.scale(dpr, dpr);
   const w = c.clientWidth, h = c.clientHeight;
   ctx.clearRect(0, 0, w, h);
-  const candles = (chart && chart.candles || []).slice(-90);
-  if (!candles.length) {{
+  const allCandles = (lastChart && lastChart.candles || []);
+  if (!allCandles.length) {{
+    if (tip) tip.style.display = 'none';
     ctx.fillStyle = '#8796a8'; ctx.fillText('No K data yet.', 16, 28); return;
   }}
+  const range = clampKlineView(allCandles.length);
+  const candles = allCandles.slice(range.start, range.end);
+  const indicators = lastChart.indicators || {{}};
   const allValues = [];
   candles.forEach(x => allValues.push(Number(x.high), Number(x.low)));
   ['sma_5','sma_10','sma_20','ema_12','ema_26','bb_upper','bb_lower'].forEach(key => {{
-    (chart.indicators[key] || []).slice(-90).forEach(x => {{ if (x.value !== null && x.value !== undefined) allValues.push(Number(x.value)); }});
+    (indicators[key] || []).slice(range.start, range.end).forEach(x => {{ if (x.value !== null && x.value !== undefined) allValues.push(Number(x.value)); }});
   }});
-  if (chart.levels.support) allValues.push(Number(chart.levels.support));
-  if (chart.levels.resistance) allValues.push(Number(chart.levels.resistance));
-  const min = Math.min(...allValues), max = Math.max(...allValues), span = max - min || 1;
-  const left = 46, right = 12, top = 14, bottom = 32;
-  const plotW = w - left - right, plotH = h - top - bottom;
+  const levels = lastChart.levels || {{}};
+  if (levels.support) allValues.push(Number(levels.support));
+  if (levels.resistance) allValues.push(Number(levels.resistance));
+  const minRaw = Math.min(...allValues), maxRaw = Math.max(...allValues);
+  const pad = Math.max((maxRaw - minRaw) * 0.08, 0.000001);
+  const min = minRaw - pad, max = maxRaw + pad, span = max - min || 1;
+  const left = 58, right = 58, top = 14, bottom = 40;
+  const plotW = Math.max(20, w - left - right), plotH = Math.max(20, h - top - bottom);
   const y = v => top + (max - Number(v)) / span * plotH;
   const x = i => left + (i + 0.5) / candles.length * plotW;
   ctx.strokeStyle = '#263241'; ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {{
     const yy = top + i / 4 * plotH;
+    const price = max - i / 4 * span;
     ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w - right, yy); ctx.stroke();
-    ctx.fillStyle = '#8796a8'; ctx.font = '11px Arial'; ctx.fillText(money.format(max - i / 4 * span), 4, yy + 4);
+    ctx.fillStyle = '#8796a8'; ctx.font = '11px Arial'; ctx.fillText(money.format(price), 6, yy + 4);
+    ctx.fillText(money.format(price), w - right + 8, yy + 4);
   }}
-  const bw = Math.max(3, plotW / candles.length * 0.58);
+  const step = Math.max(1, Math.floor(candles.length / 5));
+  candles.forEach((row, i) => {{
+    if (i % step !== 0 && i !== candles.length - 1) return;
+    const xx = x(i);
+    ctx.strokeStyle = '#1b2530'; ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, h - bottom); ctx.stroke();
+    ctx.fillStyle = '#8796a8'; ctx.font = '11px Arial'; ctx.fillText(shortTime(row.time), Math.max(left, Math.min(xx - 22, w - right - 44)), h - 14);
+  }});
+  const bw = Math.max(3, Math.min(18, plotW / candles.length * 0.64));
   candles.forEach((row, i) => {{
     const up = Number(row.close) >= Number(row.open);
     const color = up ? '#0ecb81' : '#f6465d';
@@ -760,25 +848,31 @@ function drawKline(chart) {{
     ctx.beginPath(); ctx.moveTo(xx, yh); ctx.lineTo(xx, yl); ctx.stroke();
     ctx.fillRect(xx - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yc - yo)));
   }});
-  drawLine(chart.indicators.bb_upper, '#6b7280', true);
-  drawLine(chart.indicators.bb_lower, '#6b7280', true);
-  drawLine(chart.indicators.sma_5, '#f0b90b');
-  drawLine(chart.indicators.sma_10, '#4fa3ff');
-  drawLine(chart.indicators.sma_20, '#c084fc');
-  drawLine(chart.indicators.ema_12, '#2dd4bf');
-  drawLine(chart.indicators.ema_26, '#fb7185');
-  drawLevel(chart.levels.support, '#0ecb81', 'S');
-  drawLevel(chart.levels.resistance, '#f6465d', 'R');
-  (chart.patterns || []).slice(-24).forEach(p => {{
+  drawLine(indicators.bb_upper, '#6b7280', true);
+  drawLine(indicators.bb_lower, '#6b7280', true);
+  drawLine(indicators.sma_5, '#f0b90b');
+  drawLine(indicators.sma_10, '#4fa3ff');
+  drawLine(indicators.sma_20, '#c084fc');
+  drawLine(indicators.ema_12, '#2dd4bf');
+  drawLine(indicators.ema_26, '#fb7185');
+  drawLevel(levels.support, '#0ecb81', 'S');
+  drawLevel(levels.resistance, '#f6465d', 'R');
+  (lastChart.patterns || []).forEach(p => {{
     const idx = candles.findIndex(cn => cn.time === p.timestamp);
     if (idx < 0) return;
     const px = x(idx), py = y(p.price);
     ctx.fillStyle = p.bias === 'bullish' ? '#0ecb81' : p.bias === 'bearish' ? '#f6465d' : '#f0b90b';
     ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.font = '10px Arial'; ctx.fillText(p.label.replace(' ', '\\n'), px + 5, py - 5);
+    ctx.font = '10px Arial'; ctx.fillText(String(p.label || '').slice(0, 18), px + 5, py - 5);
   }});
+  if (klineCrosshair) drawCrosshair();
+  const windowLabel = document.getElementById('klineWindow');
+  if (windowLabel) {{
+    const latest = range.end >= allCandles.length ? 'latest' : `${{range.start + 1}}-${{range.end}} / ${{allCandles.length}}`;
+    windowLabel.textContent = `${{intervalLabels[selectedInterval] || selectedInterval + 's'}} · ${{latest}}`;
+  }}
   function drawLine(series, color, dashed=false) {{
-    const visible = (series || []).slice(-90);
+    const visible = (series || []).slice(range.start, range.end);
     ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.setLineDash(dashed ? [4,4] : []);
     ctx.beginPath(); let started = false;
     visible.forEach((row, i) => {{
@@ -792,8 +886,29 @@ function drawKline(chart) {{
     if (value === null || value === undefined) return;
     const yy = y(value);
     ctx.strokeStyle = color; ctx.setLineDash([6,4]); ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w-right, yy); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = color; ctx.fillText(label, w-right-12, yy-4);
+    ctx.fillStyle = color; ctx.fillText(label, w-right+8, yy-4);
   }}
+  function drawCrosshair() {{
+    const localX = Math.max(left, Math.min(w - right, klineCrosshair.x));
+    const idx = Math.max(0, Math.min(candles.length - 1, Math.floor((localX - left) / plotW * candles.length)));
+    const row = candles[idx];
+    const px = x(idx);
+    const py = Math.max(top, Math.min(h - bottom, klineCrosshair.y));
+    const priceAtPointer = max - ((py - top) / plotH * span);
+    ctx.strokeStyle = '#9aa4b2'; ctx.setLineDash([3,4]);
+    ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, h - bottom); ctx.moveTo(left, py); ctx.lineTo(w - right, py); ctx.stroke(); ctx.setLineDash([]);
+    if (tip && row) {{
+      tip.style.display = 'block';
+      tip.style.left = `${{Math.min(w - 220, Math.max(8, px + 12))}}px`;
+      tip.style.top = `${{Math.min(h - 130, Math.max(8, py + 12))}}px`;
+      tip.innerHTML = `<strong>${{intervalLabels[selectedInterval] || selectedInterval + 's'}} ${{new Date(row.time).toLocaleString()}}</strong><br>O ${{num(row.open)}} &nbsp; H ${{num(row.high)}}<br>L ${{num(row.low)}} &nbsp; C ${{num(row.close)}}<br>Pointer ${{num(priceAtPointer)}}`;
+    }}
+  }}
+}}
+function shortTime(value) {{
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], {{ hour:'2-digit', minute:'2-digit' }});
 }}
 function latest(series) {{
   const rows = (series || []).filter(x => x.value !== null && x.value !== undefined);
@@ -804,7 +919,7 @@ function renderPatterns(patterns) {{
   return patterns.slice(-14).reverse().map(p => `<div class="pattern-item"><strong>${{cell(p.label)}} · ${{cell(p.bias)}}</strong><span>${{cell(p.timestamp)}} @ ${{num(p.price)}}<br>${{cell(p.reason)}}</span></div>`).join('');
 }}
 async function refresh() {{
-  const res = await fetch('/api/state?limit=120', {{ cache:'no-store' }});
+  const res = await fetch(`/api/state?limit=720&interval=${{selectedInterval}}`, {{ cache:'no-store' }});
   const s = await res.json();
   document.getElementById('status').textContent = `updated ${{new Date(s.generated_at).toLocaleTimeString()}}`;
   document.getElementById('source').textContent = s.market.source || '';
@@ -840,6 +955,52 @@ async function refresh() {{
   document.getElementById('rejected').innerHTML = table(s.rejected_signals, ['timestamp','signal_id','reason','side','source']);
 }}
 {admin_script}
+document.querySelectorAll('.tf-btn').forEach(btn => {{
+  btn.addEventListener('click', () => setIntervalWindow(btn.dataset.interval));
+}});
+document.getElementById('fitKline').addEventListener('click', resetKlineView);
+const klineCanvas = document.getElementById('kline');
+klineCanvas.addEventListener('wheel', event => {{
+  event.preventDefault();
+  const total = ((lastChart || {{}}).candles || []).length;
+  if (!total) return;
+  if (event.ctrlKey || event.metaKey) {{
+    const direction = event.deltaY > 0 ? 1 : -1;
+    klineView.size = Math.max(12, Math.min(180, klineView.size + direction * 8));
+  }} else {{
+    const step = Math.max(1, Math.round(klineView.size * 0.08));
+    klineView.start += event.deltaY > 0 ? step : -step;
+  }}
+  klineView.pinned = klineView.start + klineView.size >= total - 1;
+  drawKline(lastChart || {{}});
+}}, {{ passive:false }});
+klineCanvas.addEventListener('pointerdown', event => {{
+  klineCanvas.setPointerCapture(event.pointerId);
+  klineDrag = {{ x:event.clientX, start:klineView.start }};
+}});
+klineCanvas.addEventListener('pointermove', event => {{
+  const rect = klineCanvas.getBoundingClientRect();
+  klineCrosshair = {{ x:event.clientX - rect.left, y:event.clientY - rect.top }};
+  if (klineDrag) {{
+    const total = ((lastChart || {{}}).candles || []).length;
+    const dx = event.clientX - klineDrag.x;
+    const candleWidth = Math.max(1, rect.width / Math.max(klineView.size, 1));
+    klineView.start = klineDrag.start - Math.round(dx / candleWidth);
+    klineView.pinned = klineView.start + klineView.size >= total - 1;
+  }}
+  drawKline(lastChart || {{}});
+}});
+klineCanvas.addEventListener('pointerup', event => {{
+  klineDrag = null;
+  try {{ klineCanvas.releasePointerCapture(event.pointerId); }} catch (error) {{}}
+}});
+klineCanvas.addEventListener('pointerleave', () => {{
+  klineDrag = null;
+  klineCrosshair = null;
+  const tip = document.getElementById('klineTooltip');
+  if (tip) tip.style.display = 'none';
+  drawKline(lastChart || {{}});
+}});
 refresh();
 setInterval(refresh, 2000);
 </script>

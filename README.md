@@ -156,7 +156,7 @@ Then open:
 http://127.0.0.1:8765/
 ```
 
-The dashboard shows the latest public market price, top-of-book bid/ask, equity, drawdown, current paper positions, paper order events, decision reasons, recent trades, and rejected signals. It also draws a realtime K-line graph from recent paper-trading price snapshots and overlays technical analysis:
+The dashboard shows the latest public market price, top-of-book bid/ask, equity, drawdown, current paper positions, paper order events, decision reasons, recent trades, and rejected signals. It also draws a realtime K-line graph from recent paper-trading price snapshots. The K-line graph supports 1m, 5m, 15m, and 1h windows, horizontal drag/scroll navigation, Ctrl/Cmd + wheel zoom, a fit-to-latest control, and crosshair OHLC inspection. It overlays technical analysis:
 
 - SMA 5/10/20
 - EMA 12/26
