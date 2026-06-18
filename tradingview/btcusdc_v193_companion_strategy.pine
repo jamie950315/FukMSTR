@@ -3,18 +3,7 @@
 // This script is a TradingView companion, not a byte-for-byte port of the Python research path.
 // Backend V193 depends on research-only columns such as indicator_key and v188/v189/v190/v191/v192 state actions.
 // TradingView Pine only sees chart data and symbols available through request.security.
-strategy(
-     "BTCUSDC V193 Companion Strategy",
-     overlay = true,
-     initial_capital = 10000,
-     currency = currency.USD,
-     commission_type = strategy.commission.percent,
-     commission_value = 0.04,
-     pyramiding = 0,
-     default_qty_type = strategy.percent_of_equity,
-     default_qty_value = 100,
-     process_orders_on_close = true,
-     calc_on_every_tick = false)
+strategy("BTCUSDC V193 Companion Strategy", overlay = true, initial_capital = 10000, currency = currency.USD, commission_type = strategy.commission.percent, commission_value = 0.04, pyramiding = 0, default_qty_type = strategy.percent_of_equity, default_qty_value = 100, process_orders_on_close = true, calc_on_every_tick = false)
 
 const float V193_PREMIUM_THRESHOLD_BPS = -4.576517
 
@@ -56,10 +45,15 @@ premiumCloseBps6h = referenceClose6h > 0.0 ? (chartClose6h / referenceClose6h - 
 trendScore = (emaFast > emaSlow ? 1 : 0) + (close > emaTrend ? 1 : 0) + (rsi >= longRsiFloor ? 1 : 0) + (atrPct >= minAtrPct ? 1 : 0) + (close > high[1] ? 1 : 0)
 shortScore = (emaFast < emaSlow ? 1 : 0) + (close < emaTrend ? 1 : 0) + (rsi <= shortRsiCeiling ? 1 : 0) + (atrPct >= minAtrPct ? 1 : 0) + (close < low[1] ? 1 : 0)
 
-longBaseRaw = ta.crossover(emaFast, emaSlow) and close > emaTrend and rsi >= longRsiFloor and atrPct >= minAtrPct
-shortBaseRaw = ta.crossunder(emaFast, emaSlow) and close < emaTrend and rsi <= shortRsiCeiling and atrPct >= minAtrPct
-longRescueRaw = enableRescueLeg and ta.crossover(rsi, rescueLongRsi) and close > emaSlow and atrPct >= minAtrPct
-shortRescueRaw = enableRescueLeg and ta.crossunder(rsi, rescueShortRsi) and close < emaSlow and atrPct >= minAtrPct
+emaFastCrossOverSlow = ta.crossover(emaFast, emaSlow)
+emaFastCrossUnderSlow = ta.crossunder(emaFast, emaSlow)
+rsiCrossOverRescueLong = ta.crossover(rsi, rescueLongRsi)
+rsiCrossUnderRescueShort = ta.crossunder(rsi, rescueShortRsi)
+
+longBaseRaw = emaFastCrossOverSlow and close > emaTrend and rsi >= longRsiFloor and atrPct >= minAtrPct
+shortBaseRaw = emaFastCrossUnderSlow and close < emaTrend and rsi <= shortRsiCeiling and atrPct >= minAtrPct
+longRescueRaw = enableRescueLeg and rsiCrossOverRescueLong and close > emaSlow and atrPct >= minAtrPct
+shortRescueRaw = enableRescueLeg and rsiCrossUnderRescueShort and close < emaSlow and atrPct >= minAtrPct
 
 // Proxy for the historical V193 target bucket:
 // indicator_key=v125_top5_lb14_strict, side=long, leg=base, prior state actions unchanged.

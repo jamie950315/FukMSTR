@@ -55,10 +55,11 @@ Treat TradingView results as a visual and alerting companion, not as proof that 
 1. Open TradingView.
 2. Open a BTCUSDC chart. A perpetual/futures BTCUSDC chart is preferred if you want the premium throttle to have meaning.
 3. Open Pine Editor.
-4. Paste `tradingview/btcusdc_v193_companion_strategy.pine`.
-5. Save and add it to the chart.
-6. In settings, set `Spot/reference symbol for premium` to the spot or reference market used to compute the 6-hour premium. For example, use a BTCUSDC spot symbol when the chart is a BTCUSDC perpetual/futures symbol.
-7. Create alerts from the strategy order fills or from the alert conditions:
+4. Select and delete all existing editor content, including any default `indicator()` template.
+5. Paste `tradingview/btcusdc_v193_companion_strategy.pine`.
+6. Save and add it to the chart.
+7. In settings, set `Spot/reference symbol for premium` to the spot or reference market used to compute the 6-hour premium. For example, use a BTCUSDC spot symbol when the chart is a BTCUSDC perpetual/futures symbol.
+8. Create alerts from the strategy order fills or from the alert conditions:
    - `V193 companion long`;
    - `V193 companion short`;
    - `V193 premium throttle block`.

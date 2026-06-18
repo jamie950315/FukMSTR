@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -26,6 +27,18 @@ def test_tradingview_v193_companion_pine_contains_required_strategy_surface() ->
     assert "lookahead_on" not in source
 
 
+def test_tradingview_v193_companion_uses_one_declaration_and_global_crosses() -> None:
+    source = PINE_PATH.read_text(encoding="utf-8")
+    declaration_lines = re.findall(r"(?m)^(?:indicator|strategy|library)\(", source)
+
+    assert declaration_lines == ["strategy("]
+    assert "emaFastCrossOverSlow = ta.crossover(emaFast, emaSlow)" in source
+    assert "emaFastCrossUnderSlow = ta.crossunder(emaFast, emaSlow)" in source
+    assert "rsiCrossOverRescueLong = ta.crossover(rsi, rescueLongRsi)" in source
+    assert "rsiCrossUnderRescueShort = ta.crossunder(rsi, rescueShortRsi)" in source
+    assert not re.search(r"Raw\s*=.*\b(?:ta\.crossover|ta\.crossunder)\(", source)
+
+
 def test_tradingview_v193_companion_docs_explain_limits_and_usage() -> None:
     docs = DOC_PATH.read_text(encoding="utf-8")
 
@@ -35,4 +48,5 @@ def test_tradingview_v193_companion_docs_explain_limits_and_usage() -> None:
     assert "v188_state_action" in docs
     assert "premium_close_bps_6h >= -4.576517" in docs
     assert "Paste `tradingview/btcusdc_v193_companion_strategy.pine`" in docs
+    assert "delete all existing editor content" in docs
     assert "signed-in TradingView session" in docs
