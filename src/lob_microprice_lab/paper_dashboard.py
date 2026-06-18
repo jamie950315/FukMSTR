@@ -774,6 +774,8 @@ let lastChart = null;
 let klineView = {{ start:0, size:90, pinned:true }};
 let klineDrag = null;
 let klineCrosshair = null;
+const KLINE_ZOOM_STEP = 2;
+const KLINE_SCROLL_STEP_RATIO = 0.04;
 const intervalLabels = {{ 60:'1m', 300:'5m', 900:'15m', 3600:'1h' }};
 function resetKlineView() {{
   klineView = {{ start:0, size:90, pinned:true }};
@@ -966,9 +968,9 @@ klineCanvas.addEventListener('wheel', event => {{
   if (!total) return;
   if (event.ctrlKey || event.metaKey) {{
     const direction = event.deltaY > 0 ? 1 : -1;
-    klineView.size = Math.max(12, Math.min(180, klineView.size + direction * 8));
+    klineView.size = Math.max(12, Math.min(180, klineView.size + direction * KLINE_ZOOM_STEP));
   }} else {{
-    const step = Math.max(1, Math.round(klineView.size * 0.08));
+    const step = Math.max(1, Math.round(klineView.size * KLINE_SCROLL_STEP_RATIO));
     klineView.start += event.deltaY > 0 ? step : -step;
   }}
   klineView.pinned = klineView.start + klineView.size >= total - 1;

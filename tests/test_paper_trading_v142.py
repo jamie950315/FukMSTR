@@ -1021,6 +1021,8 @@ def test_dashboard_html_contains_kline_canvas_and_pattern_panel(tmp_path: Path) 
         assert 'id="patterns"' in html
         assert "drawKline" in html
         assert "selectedInterval" in html
+        assert "KLINE_ZOOM_STEP = 2" in html
+        assert "KLINE_SCROLL_STEP_RATIO = 0.04" in html
         assert "wheel" in html
         assert "pointerdown" in html
     finally:
