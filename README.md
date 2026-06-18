@@ -47,6 +47,7 @@ scripts/                     Research runners
 configs/                     Example configs
 docs/                        Command notes and schemas
 reports/                     Research summaries
+tradingview/                 TradingView Pine companion scripts
 Makefile                     Reproducible research/test targets
 ```
 
@@ -102,6 +103,22 @@ The replay page includes:
 - visible trade log
 - side and side source columns
 - month and total performance fields
+
+## TradingView companion
+
+The TradingView companion Pine strategy is available at:
+
+```text
+tradingview/btcusdc_v193_companion_strategy.pine
+```
+
+Usage notes and limitations are documented in:
+
+```text
+docs/TRADINGVIEW_V193_COMPANION.md
+```
+
+This Pine script is an OHLCV-based companion for charting, backtesting, and alerts. It cannot exactly reproduce the backend V193 research path because TradingView cannot access the research account-path columns used by V193.
 
 ## Paper trading demo
 

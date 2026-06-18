@@ -1,0 +1,114 @@
+//@version=6
+// BTCUSDC V193 TradingView companion strategy.
+// This script is a TradingView companion, not a byte-for-byte port of the Python research path.
+// Backend V193 depends on research-only columns such as indicator_key and v188/v189/v190/v191/v192 state actions.
+// TradingView Pine only sees chart data and symbols available through request.security.
+strategy(
+     "BTCUSDC V193 Companion Strategy",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.04,
+     pyramiding = 0,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 100,
+     process_orders_on_close = true,
+     calc_on_every_tick = false)
+
+const float V193_PREMIUM_THRESHOLD_BPS = -4.576517
+
+// Trading setup
+fastEmaLength = input.int(12, "Fast EMA length", minval = 1)
+slowEmaLength = input.int(26, "Slow EMA length", minval = 2)
+trendEmaLength = input.int(200, "Trend EMA length", minval = 20)
+rsiLength = input.int(14, "RSI length", minval = 2)
+atrLength = input.int(14, "ATR length", minval = 2)
+minAtrPct = input.float(0.05, "Minimum ATR percent", minval = 0.0, step = 0.01)
+longRsiFloor = input.float(52.0, "Base long RSI floor", minval = 1.0, maxval = 99.0, step = 0.5)
+shortRsiCeiling = input.float(48.0, "Base short RSI ceiling", minval = 1.0, maxval = 99.0, step = 0.5)
+enableRescueLeg = input.bool(true, "Enable rescue leg proxy")
+rescueLongRsi = input.float(34.0, "Rescue long RSI trigger", minval = 1.0, maxval = 50.0, step = 0.5)
+rescueShortRsi = input.float(66.0, "Rescue short RSI trigger", minval = 50.0, maxval = 99.0, step = 0.5)
+
+// V193 premium throttle proxy
+enableV193PremiumThrottle = input.bool(true, "Enable V193 top5 long-base premium throttle")
+premiumReferenceSymbol = input.symbol("BINANCE:BTCUSDC", "Spot/reference symbol for premium")
+premiumTimeframe = input.timeframe("360", "Premium timeframe")
+premiumThresholdBps = input.float(V193_PREMIUM_THRESHOLD_BPS, "V193 premium threshold bps", step = 0.000001)
+
+// Exit model
+takeProfitAtr = input.float(2.0, "Take profit ATR multiple", minval = 0.1, step = 0.1)
+stopLossAtr = input.float(1.2, "Stop loss ATR multiple", minval = 0.1, step = 0.1)
+maxHoldBars = input.int(30, "Timed exit bars", minval = 1)
+
+emaFast = ta.ema(close, fastEmaLength)
+emaSlow = ta.ema(close, slowEmaLength)
+emaTrend = ta.ema(close, trendEmaLength)
+rsi = ta.rsi(close, rsiLength)
+atr = ta.atr(atrLength)
+atrPct = close > 0.0 ? atr / close * 100.0 : 0.0
+
+chartClose6h = request.security(syminfo.tickerid, premiumTimeframe, close, gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+referenceClose6h = request.security(premiumReferenceSymbol, premiumTimeframe, close, gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+premiumCloseBps6h = referenceClose6h > 0.0 ? (chartClose6h / referenceClose6h - 1.0) * 10000.0 : na
+
+trendScore = (emaFast > emaSlow ? 1 : 0) + (close > emaTrend ? 1 : 0) + (rsi >= longRsiFloor ? 1 : 0) + (atrPct >= minAtrPct ? 1 : 0) + (close > high[1] ? 1 : 0)
+shortScore = (emaFast < emaSlow ? 1 : 0) + (close < emaTrend ? 1 : 0) + (rsi <= shortRsiCeiling ? 1 : 0) + (atrPct >= minAtrPct ? 1 : 0) + (close < low[1] ? 1 : 0)
+
+longBaseRaw = ta.crossover(emaFast, emaSlow) and close > emaTrend and rsi >= longRsiFloor and atrPct >= minAtrPct
+shortBaseRaw = ta.crossunder(emaFast, emaSlow) and close < emaTrend and rsi <= shortRsiCeiling and atrPct >= minAtrPct
+longRescueRaw = enableRescueLeg and ta.crossover(rsi, rescueLongRsi) and close > emaSlow and atrPct >= minAtrPct
+shortRescueRaw = enableRescueLeg and ta.crossunder(rsi, rescueShortRsi) and close < emaSlow and atrPct >= minAtrPct
+
+// Proxy for the historical V193 target bucket:
+// indicator_key=v125_top5_lb14_strict, side=long, leg=base, prior state actions unchanged.
+top5LongBaseProxy = longBaseRaw and trendScore >= 4
+v193ThrottleBlock = enableV193PremiumThrottle and top5LongBaseProxy and not na(premiumCloseBps6h) and premiumCloseBps6h >= premiumThresholdBps
+
+longSignal = (longBaseRaw and not v193ThrottleBlock) or longRescueRaw
+shortSignal = shortBaseRaw or shortRescueRaw
+
+const string longWebhookMessage = '{"source":"tradingview_v193_companion","strategy":"BTCUSDC_V193_COMPANION","side":"long","symbol":"{{ticker}}","time":"{{time}}","price":"{{close}}"}'
+const string shortWebhookMessage = '{"source":"tradingview_v193_companion","strategy":"BTCUSDC_V193_COMPANION","side":"short","symbol":"{{ticker}}","time":"{{time}}","price":"{{close}}"}'
+const string throttleWebhookMessage = '{"source":"tradingview_v193_companion","strategy":"BTCUSDC_V193_COMPANION","event":"v193_throttle_block","symbol":"{{ticker}}","time":"{{time}}","price":"{{close}}"}'
+
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long, comment = longRescueRaw ? "long_rescue_proxy" : "long_base_proxy", alert_message = longWebhookMessage)
+
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short, comment = shortRescueRaw ? "short_rescue_proxy" : "short_base_proxy", alert_message = shortWebhookMessage)
+
+longStop = strategy.position_avg_price - atr * stopLossAtr
+longLimit = strategy.position_avg_price + atr * takeProfitAtr
+shortStop = strategy.position_avg_price + atr * stopLossAtr
+shortLimit = strategy.position_avg_price - atr * takeProfitAtr
+
+if strategy.position_size > 0
+    strategy.exit("Long exit", "Long", stop = longStop, limit = longLimit)
+
+if strategy.position_size < 0
+    strategy.exit("Short exit", "Short", stop = shortStop, limit = shortLimit)
+
+var int entryBar = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    entryBar := bar_index
+if strategy.position_size == 0
+    entryBar := na
+
+timedExit = strategy.position_size != 0 and not na(entryBar) and bar_index - entryBar >= maxHoldBars
+if timedExit and strategy.position_size > 0
+    strategy.close("Long", comment = "timed_exit")
+if timedExit and strategy.position_size < 0
+    strategy.close("Short", comment = "timed_exit")
+
+plot(emaFast, "EMA fast", color = color.new(color.teal, 0))
+plot(emaSlow, "EMA slow", color = color.new(color.orange, 0))
+plot(emaTrend, "EMA trend", color = color.new(color.gray, 10))
+plotchar(v193ThrottleBlock, title = "V193 throttle block", char = "x", location = location.abovebar, color = color.new(color.yellow, 0), size = size.tiny)
+plotshape(longSignal, title = "Long signal", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "L")
+plotshape(shortSignal, title = "Short signal", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.tiny, text = "S")
+
+alertcondition(longSignal, "V193 companion long", longWebhookMessage)
+alertcondition(shortSignal, "V193 companion short", shortWebhookMessage)
+alertcondition(v193ThrottleBlock, "V193 premium throttle block", throttleWebhookMessage)
