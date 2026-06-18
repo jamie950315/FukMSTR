@@ -35,3 +35,4 @@ def test_tradingview_v193_companion_docs_explain_limits_and_usage() -> None:
     assert "v188_state_action" in docs
     assert "premium_close_bps_6h >= -4.576517" in docs
     assert "Paste `tradingview/btcusdc_v193_companion_strategy.pine`" in docs
+    assert "signed-in TradingView session" in docs

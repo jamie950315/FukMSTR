@@ -63,6 +63,12 @@ Treat TradingView results as a visual and alerting companion, not as proof that 
    - `V193 companion short`;
    - `V193 premium throttle block`.
 
+## Verification Status
+
+Local repository verification covers the script structure, required V193 constants, alert payloads, and non-lookahead `request.security()` usage. Browser smoke verification confirmed that TradingView opens the BTCUSDC chart, opens Pine Editor, and accepts the pasted Pine v6 script text.
+
+Final `Add to chart` compilation requires a signed-in TradingView session. In an unsigned browser session, TradingView shows a sign-in dialog before completing the add-to-chart/compile step. If TradingView returns a Pine compiler error after sign-in, copy the exact error text and line number back into this repository workflow.
+
 ## Alert Payloads
 
 Long alert:
