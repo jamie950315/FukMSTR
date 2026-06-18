@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import threading
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-import base64
-import hashlib
-import threading
 
 import pandas as pd
 import pytest
@@ -876,6 +875,87 @@ def test_dashboard_state_includes_market_orders_positions_and_decisions(tmp_path
     assert state["orders"][0]["status"] == "filled"
     assert state["decisions"][0]["decision"] == "accepted"
     assert state["kill_switch"]["active"] is False
+
+
+def test_dashboard_state_includes_realtime_kline_technical_analysis_and_patterns(tmp_path: Path) -> None:
+    run_dir = tmp_path / "paper"
+    run_dir.mkdir()
+    prices = [
+        100.0,
+        101.2,
+        99.7,
+        100.9,
+        101.7,
+        103.2,
+        102.8,
+        104.6,
+        105.1,
+        104.2,
+        103.4,
+        102.1,
+        100.8,
+        99.9,
+        101.8,
+        103.6,
+        104.8,
+        106.2,
+        107.4,
+        106.9,
+        108.5,
+        109.6,
+        108.9,
+        110.8,
+        111.7,
+    ]
+    pd.DataFrame(
+        [
+            {
+                "timestamp": (pd.Timestamp("2026-01-01T00:00:00Z") + pd.Timedelta(minutes=i)).isoformat(),
+                "event_type": "snapshot",
+                "symbol": "BTCUSDC",
+                "price": price,
+                "equity_usdc": 10_000 + i,
+                "drawdown_pct": 0,
+                "open_positions": 0,
+                "source": "test",
+            }
+            for i, price in enumerate(prices)
+        ]
+    ).to_csv(run_dir / "balance.csv", index=False)
+
+    state = build_dashboard_state(run_dir=run_dir, symbol="BTCUSDC", limit=80)
+    chart = state["technical_chart"]
+
+    assert len(chart["candles"]) >= 20
+    assert {"time", "open", "high", "low", "close"}.issubset(chart["candles"][0])
+    assert {"sma_5", "sma_10", "sma_20", "ema_12", "ema_26", "bb_upper", "bb_lower"}.issubset(chart["indicators"])
+    assert {"rsi_14", "macd", "macd_signal", "macd_histogram"}.issubset(chart["oscillators"])
+    assert chart["levels"]["resistance"] >= chart["levels"]["support"]
+    assert chart["patterns"]
+    assert any("timestamp" in row and "label" in row and "price" in row for row in chart["patterns"])
+
+
+def test_dashboard_html_contains_kline_canvas_and_pattern_panel(tmp_path: Path) -> None:
+    server = make_dashboard_server(
+        run_dir=tmp_path,
+        symbol="BTCUSDC",
+        host="127.0.0.1",
+        port=0,
+        admin_user="jamie",
+        admin_password="secret",
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        assert "Realtime K Graph" in html
+        assert 'id="kline"' in html
+        assert 'id="patterns"' in html
+        assert "drawKline" in html
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_dashboard_admin_endpoints_require_authentication(tmp_path: Path) -> None:

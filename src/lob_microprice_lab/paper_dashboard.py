@@ -60,6 +60,7 @@ def build_dashboard_state(
     orders = _read_csv_records(out / "order_events.csv", limit=limit)
     decisions = _read_csv_records(out / "decisions.csv", limit=limit)
     market = _market_state(symbol=symbol, balance=balance, book_csv=book_csv)
+    technical_chart = build_technical_chart(balance, bucket_seconds=60)
     return {
         "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "run_dir": str(out),
@@ -70,6 +71,7 @@ def build_dashboard_state(
         "positions": positions,
         "orders": orders,
         "decisions": decisions,
+        "technical_chart": technical_chart,
         "trades": trades,
         "rejected_signals": rejected,
         "kill_switch": _kill_switch_state(out),
@@ -78,6 +80,41 @@ def build_dashboard_state(
             "api_key_required": False,
             "scope": "Public market data plus local paper-trading state. No exchange orders are placed.",
         },
+    }
+
+
+def build_technical_chart(balance_rows: list[dict[str, Any]], *, bucket_seconds: int = 60) -> dict[str, Any]:
+    candles = _build_candles(balance_rows, bucket_seconds=bucket_seconds)
+    closes = [float(row["close"]) for row in candles]
+    indicators = {
+        "sma_5": _series_with_time(candles, _sma(closes, 5)),
+        "sma_10": _series_with_time(candles, _sma(closes, 10)),
+        "sma_20": _series_with_time(candles, _sma(closes, 20)),
+        "ema_12": _series_with_time(candles, _ema(closes, 12)),
+        "ema_26": _series_with_time(candles, _ema(closes, 26)),
+    }
+    bb_mid, bb_upper, bb_lower = _bollinger(closes, 20)
+    indicators.update(
+        {
+            "bb_mid": _series_with_time(candles, bb_mid),
+            "bb_upper": _series_with_time(candles, bb_upper),
+            "bb_lower": _series_with_time(candles, bb_lower),
+        }
+    )
+    macd, macd_signal, macd_histogram = _macd(closes)
+    oscillators = {
+        "rsi_14": _series_with_time(candles, _rsi(closes, 14)),
+        "macd": _series_with_time(candles, macd),
+        "macd_signal": _series_with_time(candles, macd_signal),
+        "macd_histogram": _series_with_time(candles, macd_histogram),
+    }
+    return {
+        "bucket_seconds": bucket_seconds,
+        "candles": candles,
+        "indicators": indicators,
+        "oscillators": oscillators,
+        "levels": _support_resistance(candles),
+        "patterns": _detect_patterns(candles, indicators=indicators, oscillators=oscillators),
     }
 
 
@@ -285,6 +322,232 @@ def _market_state(*, symbol: str, balance: list[dict[str, Any]], book_csv: str |
     return market
 
 
+def _build_candles(balance_rows: list[dict[str, Any]], *, bucket_seconds: int) -> list[dict[str, Any]]:
+    if not balance_rows:
+        return []
+    frame = pd.DataFrame(balance_rows)
+    if "timestamp" not in frame.columns or "price" not in frame.columns:
+        return []
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce")
+    frame["price"] = pd.to_numeric(frame["price"], errors="coerce")
+    frame = frame.dropna(subset=["timestamp", "price"]).sort_values("timestamp")
+    frame = frame.loc[frame["price"].map(_is_finite_positive)]
+    if frame.empty:
+        return []
+    frame["bucket"] = frame["timestamp"].dt.floor(f"{int(bucket_seconds)}s")
+    rows: list[dict[str, Any]] = []
+    for bucket, group in frame.groupby("bucket", sort=True):
+        prices = group["price"]
+        rows.append(
+            {
+                "time": pd.Timestamp(bucket).isoformat(),
+                "open": float(prices.iloc[0]),
+                "high": float(prices.max()),
+                "low": float(prices.min()),
+                "close": float(prices.iloc[-1]),
+                "samples": int(len(group)),
+            }
+        )
+    return rows
+
+
+def _sma(values: list[float], window: int) -> list[float | None]:
+    out: list[float | None] = []
+    for index in range(len(values)):
+        if index + 1 < window:
+            out.append(None)
+            continue
+        out.append(float(sum(values[index + 1 - window : index + 1]) / window))
+    return out
+
+
+def _ema(values: list[float], span: int) -> list[float | None]:
+    if not values:
+        return []
+    alpha = 2.0 / (span + 1.0)
+    ema = values[0]
+    out: list[float | None] = []
+    for index, value in enumerate(values):
+        ema = float(value) if index == 0 else alpha * float(value) + (1.0 - alpha) * ema
+        out.append(None if index + 1 < span else float(ema))
+    return out
+
+
+def _bollinger(values: list[float], window: int) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    mid: list[float | None] = []
+    upper: list[float | None] = []
+    lower: list[float | None] = []
+    for index in range(len(values)):
+        if index + 1 < window:
+            mid.append(None)
+            upper.append(None)
+            lower.append(None)
+            continue
+        sample = values[index + 1 - window : index + 1]
+        mean = float(sum(sample) / window)
+        variance = sum((value - mean) ** 2 for value in sample) / window
+        std = math.sqrt(variance)
+        mid.append(mean)
+        upper.append(mean + 2.0 * std)
+        lower.append(mean - 2.0 * std)
+    return mid, upper, lower
+
+
+def _rsi(values: list[float], window: int) -> list[float | None]:
+    if not values:
+        return []
+    out: list[float | None] = [None]
+    gains: list[float] = []
+    losses: list[float] = []
+    for index in range(1, len(values)):
+        change = values[index] - values[index - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+        if index < window:
+            out.append(None)
+            continue
+        recent_gains = gains[-window:]
+        recent_losses = losses[-window:]
+        avg_gain = sum(recent_gains) / window
+        avg_loss = sum(recent_losses) / window
+        if avg_loss == 0:
+            out.append(100.0)
+        else:
+            rs = avg_gain / avg_loss
+            out.append(float(100.0 - (100.0 / (1.0 + rs))))
+    return out
+
+
+def _macd(values: list[float]) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    ema_12 = _ema(values, 12)
+    ema_26 = _ema(values, 26)
+    macd: list[float | None] = []
+    for fast, slow in zip(ema_12, ema_26):
+        macd.append(None if fast is None or slow is None else float(fast - slow))
+    signal_values = _ema([0.0 if value is None else value for value in macd], 9)
+    signal: list[float | None] = []
+    histogram: list[float | None] = []
+    for index, value in enumerate(macd):
+        sig = signal_values[index]
+        if value is None or sig is None or index < 34:
+            signal.append(None)
+            histogram.append(None)
+            continue
+        signal.append(sig)
+        histogram.append(float(value - sig))
+    return macd, signal, histogram
+
+
+def _series_with_time(candles: list[dict[str, Any]], values: list[float | None]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for candle, value in zip(candles, values):
+        out.append({"time": candle["time"], "value": None if value is None else float(value)})
+    return out
+
+
+def _support_resistance(candles: list[dict[str, Any]]) -> dict[str, float | None]:
+    recent = candles[-30:] if len(candles) > 30 else candles
+    if not recent:
+        return {"support": None, "resistance": None}
+    return {
+        "support": float(min(row["low"] for row in recent)),
+        "resistance": float(max(row["high"] for row in recent)),
+    }
+
+
+def _detect_patterns(
+    candles: list[dict[str, Any]],
+    *,
+    indicators: dict[str, list[dict[str, Any]]],
+    oscillators: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    patterns: list[dict[str, Any]] = []
+    for index, candle in enumerate(candles):
+        open_price = float(candle["open"])
+        high = float(candle["high"])
+        low = float(candle["low"])
+        close = float(candle["close"])
+        body = abs(close - open_price)
+        total_range = max(high - low, 1e-12)
+        upper_shadow = high - max(open_price, close)
+        lower_shadow = min(open_price, close) - low
+        if total_range and body / total_range <= 0.12:
+            patterns.append(_pattern(candle, "Doji", "neutral", high, "open and close are nearly equal"))
+        if body > 0 and lower_shadow >= body * 2.0 and upper_shadow <= body * 0.8:
+            patterns.append(_pattern(candle, "Hammer", "bullish", low, "long lower shadow after selling pressure"))
+        if body > 0 and upper_shadow >= body * 2.0 and lower_shadow <= body * 0.8:
+            patterns.append(_pattern(candle, "Shooting Star", "bearish", high, "long upper shadow shows rejected upside"))
+        if index:
+            prev = candles[index - 1]
+            prev_open = float(prev["open"])
+            prev_close = float(prev["close"])
+            if close > open_price and prev_close < prev_open and open_price <= prev_close and close >= prev_open:
+                patterns.append(_pattern(candle, "Bullish Engulfing", "bullish", low, "green body engulfs prior red body"))
+            if close < open_price and prev_close > prev_open and open_price >= prev_close and close <= prev_open:
+                patterns.append(_pattern(candle, "Bearish Engulfing", "bearish", high, "red body engulfs prior green body"))
+        if index >= 10:
+            prior_high = max(float(row["high"]) for row in candles[index - 10 : index])
+            prior_low = min(float(row["low"]) for row in candles[index - 10 : index])
+            if close > prior_high:
+                patterns.append(_pattern(candle, "Range Breakout", "bullish", close, "close broke above the recent 10-candle high"))
+            if close < prior_low:
+                patterns.append(_pattern(candle, "Range Breakdown", "bearish", close, "close broke below the recent 10-candle low"))
+    patterns.extend(_cross_patterns(candles, indicators, "sma_5", "sma_20", "SMA 5/20"))
+    rsi = oscillators.get("rsi_14", [])
+    for candle, row in zip(candles, rsi):
+        value = row.get("value")
+        if value is None:
+            continue
+        if float(value) >= 70.0:
+            patterns.append(_pattern(candle, "RSI Overbought", "bearish", candle["high"], f"RSI {float(value):.1f}"))
+        if float(value) <= 30.0:
+            patterns.append(_pattern(candle, "RSI Oversold", "bullish", candle["low"], f"RSI {float(value):.1f}"))
+    return patterns[-80:]
+
+
+def _cross_patterns(
+    candles: list[dict[str, Any]],
+    indicators: dict[str, list[dict[str, Any]]],
+    fast_key: str,
+    slow_key: str,
+    label: str,
+) -> list[dict[str, Any]]:
+    fast = indicators.get(fast_key, [])
+    slow = indicators.get(slow_key, [])
+    out: list[dict[str, Any]] = []
+    for index in range(1, min(len(candles), len(fast), len(slow))):
+        prev_fast = fast[index - 1].get("value")
+        prev_slow = slow[index - 1].get("value")
+        now_fast = fast[index].get("value")
+        now_slow = slow[index].get("value")
+        if None in {prev_fast, prev_slow, now_fast, now_slow}:
+            continue
+        candle = candles[index]
+        if float(prev_fast) <= float(prev_slow) and float(now_fast) > float(now_slow):
+            out.append(_pattern(candle, f"{label} Bull Cross", "bullish", candle["low"], "fast average crossed above slow average"))
+        if float(prev_fast) >= float(prev_slow) and float(now_fast) < float(now_slow):
+            out.append(_pattern(candle, f"{label} Bear Cross", "bearish", candle["high"], "fast average crossed below slow average"))
+    return out
+
+
+def _pattern(candle: dict[str, Any], label: str, bias: str, price: object, reason: str) -> dict[str, Any]:
+    return {
+        "timestamp": candle["time"],
+        "label": label,
+        "bias": bias,
+        "price": float(price),
+        "reason": reason,
+    }
+
+
+def _is_finite_positive(value: object) -> bool:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0.0
+
+
 def _read_csv_records(path: Path, *, limit: int) -> list[dict[str, Any]]:
     if not path.exists() or path.stat().st_size == 0:
         return []
@@ -385,9 +648,14 @@ th:first-child, td:first-child {{ text-align:left; }}
 th {{ color:var(--muted); font-weight:400; }}
 .stack {{ display:grid; gap:10px; }}
 .chart {{ width:100%; height:260px; }}
+.kline {{ width:100%; height:520px; }}
+.pattern-list {{ display:grid; gap:6px; max-height:240px; overflow:auto; }}
+.pattern-item {{ border:1px solid var(--line); border-radius:6px; padding:7px; }}
+.pattern-item strong {{ display:block; font-size:12px; }}
+.pattern-item span {{ color:var(--muted); font-size:11px; }}
 .muted {{ color:var(--muted); }}
 .status {{ font-size:12px; color:var(--muted); }}
-@media (max-width:1100px) {{ main {{ grid-template-columns:1fr; }} .chart {{ height:220px; }} }}
+@media (max-width:1100px) {{ main {{ grid-template-columns:1fr; }} .chart {{ height:220px; }} .kline {{ height:440px; }} }}
 </style>
 </head>
 <body>
@@ -411,11 +679,14 @@ th {{ color:var(--muted); font-weight:400; }}
     <section><div class="section-title"><span>Account</span></div><div class="content grid" id="account"></div></section>
   </div>
   <div class="stack">
+    <section><div class="section-title"><span>Realtime K Graph</span><span>SMA / EMA / BB / RSI / MACD / Patterns</span></div><div class="content"><canvas class="kline" id="kline"></canvas></div></section>
     <section><div class="section-title"><span>Equity</span></div><div class="content"><canvas class="chart" id="equity"></canvas></div></section>
     <section><div class="section-title"><span>Positions</span></div><div class="content"><div id="positions"></div></div></section>
     <section><div class="section-title"><span>Current Paper Orders</span></div><div class="content"><div id="orders"></div></div></section>
   </div>
   <div class="stack">
+    <section><div class="section-title"><span>Detected Patterns</span></div><div class="content"><div class="pattern-list" id="patterns"></div></div></section>
+    <section><div class="section-title"><span>Technical Snapshot</span></div><div class="content grid" id="technicals"></div></section>
     <section><div class="section-title"><span>Decision Reasons</span></div><div class="content"><div id="decisions"></div></div></section>
     <section><div class="section-title"><span>Recent Trades</span></div><div class="content"><div id="trades"></div></div></section>
     <section><div class="section-title"><span>Rejected Signals</span></div><div class="content"><div id="rejected"></div></div></section>
@@ -451,6 +722,87 @@ function drawEquity(rows) {{
   }});
   ctx.stroke();
 }}
+function drawKline(chart) {{
+  const c = document.getElementById('kline');
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr; ctx.scale(dpr, dpr);
+  const w = c.clientWidth, h = c.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  const candles = (chart && chart.candles || []).slice(-90);
+  if (!candles.length) {{
+    ctx.fillStyle = '#8796a8'; ctx.fillText('No K data yet.', 16, 28); return;
+  }}
+  const allValues = [];
+  candles.forEach(x => allValues.push(Number(x.high), Number(x.low)));
+  ['sma_5','sma_10','sma_20','ema_12','ema_26','bb_upper','bb_lower'].forEach(key => {{
+    (chart.indicators[key] || []).slice(-90).forEach(x => {{ if (x.value !== null && x.value !== undefined) allValues.push(Number(x.value)); }});
+  }});
+  if (chart.levels.support) allValues.push(Number(chart.levels.support));
+  if (chart.levels.resistance) allValues.push(Number(chart.levels.resistance));
+  const min = Math.min(...allValues), max = Math.max(...allValues), span = max - min || 1;
+  const left = 46, right = 12, top = 14, bottom = 32;
+  const plotW = w - left - right, plotH = h - top - bottom;
+  const y = v => top + (max - Number(v)) / span * plotH;
+  const x = i => left + (i + 0.5) / candles.length * plotW;
+  ctx.strokeStyle = '#263241'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {{
+    const yy = top + i / 4 * plotH;
+    ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w - right, yy); ctx.stroke();
+    ctx.fillStyle = '#8796a8'; ctx.font = '11px Arial'; ctx.fillText(money.format(max - i / 4 * span), 4, yy + 4);
+  }}
+  const bw = Math.max(3, plotW / candles.length * 0.58);
+  candles.forEach((row, i) => {{
+    const up = Number(row.close) >= Number(row.open);
+    const color = up ? '#0ecb81' : '#f6465d';
+    const xx = x(i), yo = y(row.open), yc = y(row.close), yh = y(row.high), yl = y(row.low);
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(xx, yh); ctx.lineTo(xx, yl); ctx.stroke();
+    ctx.fillRect(xx - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yc - yo)));
+  }});
+  drawLine(chart.indicators.bb_upper, '#6b7280', true);
+  drawLine(chart.indicators.bb_lower, '#6b7280', true);
+  drawLine(chart.indicators.sma_5, '#f0b90b');
+  drawLine(chart.indicators.sma_10, '#4fa3ff');
+  drawLine(chart.indicators.sma_20, '#c084fc');
+  drawLine(chart.indicators.ema_12, '#2dd4bf');
+  drawLine(chart.indicators.ema_26, '#fb7185');
+  drawLevel(chart.levels.support, '#0ecb81', 'S');
+  drawLevel(chart.levels.resistance, '#f6465d', 'R');
+  (chart.patterns || []).slice(-24).forEach(p => {{
+    const idx = candles.findIndex(cn => cn.time === p.timestamp);
+    if (idx < 0) return;
+    const px = x(idx), py = y(p.price);
+    ctx.fillStyle = p.bias === 'bullish' ? '#0ecb81' : p.bias === 'bearish' ? '#f6465d' : '#f0b90b';
+    ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '10px Arial'; ctx.fillText(p.label.replace(' ', '\\n'), px + 5, py - 5);
+  }});
+  function drawLine(series, color, dashed=false) {{
+    const visible = (series || []).slice(-90);
+    ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.setLineDash(dashed ? [4,4] : []);
+    ctx.beginPath(); let started = false;
+    visible.forEach((row, i) => {{
+      if (row.value === null || row.value === undefined) return;
+      const xx = x(i), yy = y(row.value);
+      if (!started) {{ ctx.moveTo(xx, yy); started = true; }} else ctx.lineTo(xx, yy);
+    }});
+    ctx.stroke(); ctx.setLineDash([]);
+  }}
+  function drawLevel(value, color, label) {{
+    if (value === null || value === undefined) return;
+    const yy = y(value);
+    ctx.strokeStyle = color; ctx.setLineDash([6,4]); ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w-right, yy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.fillText(label, w-right-12, yy-4);
+  }}
+}}
+function latest(series) {{
+  const rows = (series || []).filter(x => x.value !== null && x.value !== undefined);
+  return rows.length ? rows[rows.length - 1].value : null;
+}}
+function renderPatterns(patterns) {{
+  if (!patterns || !patterns.length) return '<div class="muted">No patterns yet.</div>';
+  return patterns.slice(-14).reverse().map(p => `<div class="pattern-item"><strong>${{cell(p.label)}} · ${{cell(p.bias)}}</strong><span>${{cell(p.timestamp)}} @ ${{num(p.price)}}<br>${{cell(p.reason)}}</span></div>`).join('');
+}}
 async function refresh() {{
   const res = await fetch('/api/state?limit=120', {{ cache:'no-store' }});
   const s = await res.json();
@@ -470,6 +822,17 @@ async function refresh() {{
     metric('Open Positions', cell(last.open_positions || s.summary.open_positions || 0))
   ].join('');
   drawEquity(s.balance || []);
+  drawKline(s.technical_chart || {{}});
+  document.getElementById('patterns').innerHTML = renderPatterns((s.technical_chart || {{}}).patterns || []);
+  const chart = s.technical_chart || {{}};
+  document.getElementById('technicals').innerHTML = [
+    metric('SMA 5', num(latest((chart.indicators || {{}}).sma_5))),
+    metric('SMA 20', num(latest((chart.indicators || {{}}).sma_20))),
+    metric('RSI 14', num(latest((chart.oscillators || {{}}).rsi_14))),
+    metric('MACD Hist', num(latest((chart.oscillators || {{}}).macd_histogram))),
+    metric('Support', num((chart.levels || {{}}).support)),
+    metric('Resistance', num((chart.levels || {{}}).resistance))
+  ].join('');
   document.getElementById('positions').innerHTML = table(s.positions, ['signal_id','symbol','side','mark_price','entry_price','unrealized_pnl_usdc','time_to_exit_minutes']);
   document.getElementById('orders').innerHTML = table(s.orders, ['timestamp','signal_id','status','side','price','reason']);
   document.getElementById('decisions').innerHTML = table(s.decisions, ['timestamp','signal_id','decision','reason','result']);

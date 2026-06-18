@@ -156,7 +156,17 @@ Then open:
 http://127.0.0.1:8765/
 ```
 
-The dashboard shows the latest public market price, top-of-book bid/ask, equity, drawdown, current paper positions, paper order events, decision reasons, recent trades, and rejected signals. Its kill switch writes `kill_switch.json`; a running `paper-trade-v142` loop reads that file and force-closes open paper positions at the next valid market snapshot. This is still local paper trading only and does not submit exchange orders.
+The dashboard shows the latest public market price, top-of-book bid/ask, equity, drawdown, current paper positions, paper order events, decision reasons, recent trades, and rejected signals. It also draws a realtime K-line graph from recent paper-trading price snapshots and overlays technical analysis:
+
+- SMA 5/10/20
+- EMA 12/26
+- Bollinger Bands 20
+- RSI 14
+- MACD / signal / histogram
+- support and resistance levels
+- automatic pattern labels such as doji, hammer, shooting star, engulfing, range breakout/breakdown, SMA crosses, and RSI overbought/oversold
+
+Its kill switch writes `kill_switch.json`; a running `paper-trade-v142` loop reads that file and force-closes open paper positions at the next valid market snapshot. This is still local paper trading only and does not submit exchange orders.
 
 The public dashboard is read-only. Control actions are available at `/admin` and require HTTP Basic authentication configured through environment variables:
 
