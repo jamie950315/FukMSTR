@@ -3,12 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+import base64
+import hashlib
+import threading
 
 import pandas as pd
 import pytest
 
 from lob_microprice_lab.paper_trading import (
     BinancePublicTickerSource,
+    BookCsvPriceSource,
     CsvPriceSource,
     CsvSignalProvider,
     MarketSnapshot,
@@ -17,6 +23,11 @@ from lob_microprice_lab.paper_trading import (
     PaperTradingConfig,
     V142LeveragePolicy,
     run_v142_paper_trading,
+)
+from lob_microprice_lab.paper_dashboard import (
+    build_dashboard_state,
+    make_dashboard_server,
+    request_kill_switch,
 )
 
 
@@ -36,6 +47,41 @@ class _FailOncePriceSource:
                 source="test",
             )
         return None
+
+
+class _RequestKillSwitchAfterFirstSnapshotSource:
+    def __init__(self, out_dir: Path) -> None:
+        self.out_dir = out_dir
+        self.index = 0
+        self.snapshots = [
+            MarketSnapshot(
+                timestamp=pd.Timestamp("2026-01-01T00:00:00Z"),
+                symbol="BTCUSDC",
+                price=100.0,
+                source="test",
+            ),
+            MarketSnapshot(
+                timestamp=pd.Timestamp("2026-01-01T00:01:00Z"),
+                symbol="BTCUSDC",
+                price=101.0,
+                source="test",
+            ),
+            MarketSnapshot(
+                timestamp=pd.Timestamp("2026-01-01T00:02:00Z"),
+                symbol="BTCUSDC",
+                price=102.0,
+                source="test",
+            ),
+        ]
+
+    def next_snapshot(self) -> MarketSnapshot | None:
+        if self.index >= len(self.snapshots):
+            return None
+        snapshot = self.snapshots[self.index]
+        self.index += 1
+        if self.index == 2:
+            request_kill_switch(self.out_dir, reason="operator_test")
+        return snapshot
 
 
 def test_paper_trade_v142_cli_runs_synthetic_demo(tmp_path: Path) -> None:
@@ -64,6 +110,92 @@ def test_paper_trade_v142_cli_runs_synthetic_demo(tmp_path: Path) -> None:
     assert (out_dir / "balance.csv").exists()
     assert (out_dir / "paper_events.jsonl").exists()
     assert (out_dir / "trades.csv").exists()
+
+
+def test_book_csv_price_source_uses_mid_price_from_l1_book(tmp_path: Path) -> None:
+    book_csv = tmp_path / "book.csv"
+    book_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,bid_px_1,bid_sz_1,ask_px_1,ask_sz_1",
+                "2026-06-18T00:00:00Z,100.0,2.0,100.2,3.0",
+                "2026-06-18T00:01:00Z,101.0,2.5,101.4,3.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    source = BookCsvPriceSource(book_csv, symbol="btcusdc")
+
+    first = source.next_snapshot()
+    second = source.next_snapshot()
+
+    assert first is not None
+    assert first.symbol == "BTCUSDC"
+    assert first.source == "book-csv"
+    assert first.price == pytest.approx(100.1)
+    assert second is not None
+    assert second.price == pytest.approx(101.2)
+    assert source.next_snapshot() is None
+
+
+def test_book_csv_price_source_parses_numeric_microsecond_timestamps(tmp_path: Path) -> None:
+    book_csv = tmp_path / "book_us.csv"
+    book_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,bid_px_1,bid_sz_1,ask_px_1,ask_sz_1",
+                "1781718009688854,100.0,2.0,100.2,3.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    source = BookCsvPriceSource(book_csv, symbol="BTCUSDC")
+    snapshot = source.next_snapshot()
+
+    assert snapshot is not None
+    assert snapshot.timestamp.year == 2026
+
+
+def test_paper_trade_v142_cli_runs_from_realtime_book_csv(tmp_path: Path) -> None:
+    from lob_microprice_lab.cli import main
+
+    book_csv = tmp_path / "book.csv"
+    book_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,bid_px_1,bid_sz_1,ask_px_1,ask_sz_1",
+                "2026-06-18T00:00:00Z,100.0,2.0,100.2,3.0",
+                "2026-06-18T00:01:00Z,100.1,2.0,100.3,3.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "cli-paper-book"
+
+    rc = main(
+        [
+            "paper-trade-v142",
+            "--out",
+            str(out_dir),
+            "--source",
+            "book-csv",
+            "--book-csv",
+            str(book_csv),
+            "--ticks",
+            "2",
+            "--clean",
+            "--no-sleep",
+        ]
+    )
+
+    assert rc == 0
+    summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["events"] == 2
+    balance = pd.read_csv(out_dir / "balance.csv")
+    assert list(balance["source"]) == ["book-csv", "book-csv"]
+    assert list(balance["price"]) == pytest.approx([100.1, 100.2])
 
 
 def test_real_trade_btcusdc_cli_blocks_when_v206_preflight_is_not_ready(tmp_path: Path) -> None:
@@ -618,6 +750,220 @@ def test_v142_paper_runner_writes_logs_trades_balance_and_dashboard(tmp_path: Pa
     assert bool(trades.loc[trades["event_type"] == "open", "high_confidence_rescue_5x"].iloc[0]) is True
     summary_json = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary_json["final_balance_usdc"] > 10_000.0
+
+
+def test_v142_paper_runner_writes_dashboard_state_files(tmp_path: Path) -> None:
+    price_csv = tmp_path / "prices.csv"
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    price_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,price",
+                "2026-01-01T00:00:00Z,100",
+                "2026-01-01T00:01:00Z,100.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    signal_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,signal_id,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,live-long,1,base,0.61,30",
+                "2026-01-01T00:00:00Z,bad-side,0,base,0.42,30",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=CsvPriceSource(price_csv, symbol="BTCUSDC"),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        config=PaperTradingConfig(initial_balance_usdc=10_000.0),
+        clean=True,
+        sleep=False,
+    )
+
+    assert summary["open_positions"] == 1
+    positions = pd.read_csv(out_dir / "positions.csv")
+    orders = pd.read_csv(out_dir / "order_events.csv")
+    decisions = pd.read_csv(out_dir / "decisions.csv")
+    assert positions["signal_id"].tolist() == ["live-long"]
+    assert orders.loc[orders["signal_id"] == "live-long", "status"].iloc[0] == "filled"
+    assert orders.loc[orders["signal_id"] == "bad-side", "status"].iloc[0] == "rejected"
+    assert set(decisions["decision"].tolist()) >= {"accepted", "rejected", "no_signal"}
+
+
+def test_v142_paper_runner_kill_switch_closes_open_positions(tmp_path: Path) -> None:
+    signal_csv = tmp_path / "signals.csv"
+    out_dir = tmp_path / "paper"
+    signal_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,signal_id,side,leg,direction_probability,horizon_minutes",
+                "2026-01-01T00:00:00Z,manual-close,1,base,0.61,30",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = run_v142_paper_trading(
+        out_dir=out_dir,
+        market_source=_RequestKillSwitchAfterFirstSnapshotSource(out_dir),
+        signal_provider=CsvSignalProvider(signal_csv, default_symbol="BTCUSDC"),
+        config=PaperTradingConfig(initial_balance_usdc=10_000.0),
+        clean=False,
+        sleep=False,
+    )
+
+    assert summary["open_positions"] == 0
+    trades = pd.read_csv(out_dir / "trades.csv")
+    orders = pd.read_csv(out_dir / "order_events.csv")
+    decisions = pd.read_csv(out_dir / "decisions.csv")
+    assert "kill_switch_close" in trades["event_type"].tolist()
+    assert "closed_by_kill_switch" in orders["status"].tolist()
+    assert "kill_switch_active" in decisions["decision"].tolist()
+
+
+def test_dashboard_state_includes_market_orders_positions_and_decisions(tmp_path: Path) -> None:
+    run_dir = tmp_path / "paper"
+    run_dir.mkdir()
+    (run_dir / "summary.json").write_text(
+        json.dumps({"open_positions": 1, "final_equity_usdc": 10025.0, "trades": 1}),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "event_type": "snapshot",
+                "symbol": "BTCUSDC",
+                "price": 100.5,
+                "equity_usdc": 10025.0,
+                "drawdown_pct": -0.1,
+                "open_positions": 1,
+            }
+        ]
+    ).to_csv(run_dir / "balance.csv", index=False)
+    pd.DataFrame(
+        [{"signal_id": "p1", "symbol": "BTCUSDC", "side": 1, "unrealized_pnl_usdc": 25.0}]
+    ).to_csv(run_dir / "positions.csv", index=False)
+    pd.DataFrame(
+        [{"timestamp": "2026-01-01T00:00:00Z", "signal_id": "p1", "status": "filled", "reason": "accepted"}]
+    ).to_csv(run_dir / "order_events.csv", index=False)
+    pd.DataFrame(
+        [{"timestamp": "2026-01-01T00:00:00Z", "signal_id": "p1", "decision": "accepted", "reason": "passed_realtime_safe_checks"}]
+    ).to_csv(run_dir / "decisions.csv", index=False)
+    book_csv = tmp_path / "book.csv"
+    book_csv.write_text(
+        "\n".join(
+            [
+                "timestamp,bid_px_1,bid_sz_1,ask_px_1,ask_sz_1",
+                "2026-01-01T00:00:00Z,100.0,2.0,101.0,3.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    state = build_dashboard_state(run_dir=run_dir, book_csv=book_csv, symbol="BTCUSDC")
+
+    assert state["market"]["mid_price"] == 100.5
+    assert state["market"]["spread_bps"] == pytest.approx(99.50248756218906)
+    assert state["summary"]["open_positions"] == 1
+    assert state["positions"][0]["signal_id"] == "p1"
+    assert state["orders"][0]["status"] == "filled"
+    assert state["decisions"][0]["decision"] == "accepted"
+    assert state["kill_switch"]["active"] is False
+
+
+def test_dashboard_admin_endpoints_require_authentication(tmp_path: Path) -> None:
+    server = make_dashboard_server(
+        run_dir=tmp_path,
+        symbol="BTCUSDC",
+        host="127.0.0.1",
+        port=0,
+        admin_user="jamie",
+        admin_password="secret",
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with pytest.raises(HTTPError) as exc:
+            urlopen(Request(f"{base_url}/api/kill-switch", method="POST"), timeout=5)
+        assert exc.value.code == 401
+        assert not (tmp_path / "kill_switch.json").exists()
+
+        token = base64.b64encode(b"jamie:secret").decode("ascii")
+        req = Request(
+            f"{base_url}/api/kill-switch",
+            data=b'{"reason":"test"}',
+            headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=5) as response:
+            assert response.status == 200
+        assert json.loads((tmp_path / "kill_switch.json").read_text(encoding="utf-8"))["active"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_dashboard_public_page_is_read_only_and_admin_page_has_controls(tmp_path: Path) -> None:
+    server = make_dashboard_server(
+        run_dir=tmp_path,
+        symbol="BTCUSDC",
+        host="127.0.0.1",
+        port=0,
+        admin_user="jamie",
+        admin_password="secret",
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        public_html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        assert "Public View" in public_html
+        assert "id=\"kill\"" not in public_html
+
+        with pytest.raises(HTTPError) as exc:
+            urlopen(f"{base_url}/admin", timeout=5)
+        assert exc.value.code == 401
+
+        token = base64.b64encode(b"jamie:secret").decode("ascii")
+        req = Request(f"{base_url}/admin", headers={"Authorization": f"Basic {token}"})
+        admin_html = urlopen(req, timeout=5).read().decode("utf-8")
+        assert "Admin Panel" in admin_html
+        assert "id=\"kill\"" in admin_html
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_dashboard_admin_auth_accepts_password_hash(tmp_path: Path) -> None:
+    server = make_dashboard_server(
+        run_dir=tmp_path,
+        symbol="BTCUSDC",
+        host="127.0.0.1",
+        port=0,
+        admin_user="jamie",
+        admin_password_sha256=hashlib.sha256(b"secret").hexdigest(),
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        token = base64.b64encode(b"jamie:secret").decode("ascii")
+        req = Request(f"{base_url}/admin", headers={"Authorization": f"Basic {token}"})
+        with urlopen(req, timeout=5) as response:
+            body = response.read().decode("utf-8")
+        assert response.status == 200
+        assert "Admin Panel" in body
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_paper_broker_close_drawdown_does_not_count_closed_position_twice() -> None:

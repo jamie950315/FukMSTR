@@ -1212,6 +1212,16 @@ test-btcusdc-v196:
 paper-trade-v142-realtime-safe-smoke:
 	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_realtime_safe_smoke --source synthetic --ticks 3 --interval-sec 60 --clean --no-sleep
 
+collect-binance-ws-smoke:
+	PYTHONPATH=src python -m lob_microprice_lab.cli collect-binance-ws --out data/binance/BTCUSDT_ws_depth20.csv --symbol BTCUSDT --depth 20 --sample-ms 1000 --seconds 10
+
+paper-trade-v142-book-csv-smoke:
+	test -n "$(BOOK_CSV)" || (echo "BOOK_CSV is required, for example BOOK_CSV=data/binance/BTCUSDT_ws_depth20.csv" && exit 2)
+	PYTHONPATH=src python -m lob_microprice_lab.cli paper-trade-v142 --out runs/paper_v142_book_csv_smoke --source book-csv --book-csv "$(BOOK_CSV)" --ticks $(or $(TICKS),3) --interval-sec 60 --clean --no-sleep
+
+paper-dashboard-v142:
+	PYTHONPATH=src python -m lob_microprice_lab.cli paper-dashboard --run-dir $(or $(RUN_DIR),runs/paper_v142_book_csv_smoke) --book-csv $(or $(BOOK_CSV),data/binance/BTCUSDT_ws_depth20.csv) --symbol $(or $(SYMBOL),BTCUSDC) --host $(or $(HOST),127.0.0.1) --port $(or $(PORT),8765)
+
 test-btcusdc-v197:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src pytest -q tests/test_paper_trading_v142.py tests/test_btcusdc_v195_post_goal_overfitting_audit.py tests/test_btcusdc_v196_forward_monitoring_gate.py
 

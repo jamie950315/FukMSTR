@@ -118,10 +118,54 @@ runs/paper_v142_demo/dashboard.html
 runs/paper_v142_demo/paper_events.jsonl
 runs/paper_v142_demo/balance.csv
 runs/paper_v142_demo/trades.csv
+runs/paper_v142_demo/positions.csv
+runs/paper_v142_demo/order_events.csv
+runs/paper_v142_demo/decisions.csv
 runs/paper_v142_demo/summary.json
 ```
 
 The paper-trading tool is local simulation only. It records events and hypothetical trades but does not submit orders. The command name remains `paper-trade-v142` for compatibility; V193 is the official promoted online/paper iteration recorded in the strategy manifest.
+
+## Realtime public data paper trading
+
+Capture a short public Binance local order-book sample:
+
+```bash
+make collect-binance-ws-smoke
+```
+
+Run paper trading from that captured book CSV:
+
+```bash
+make paper-trade-v142-book-csv-smoke BOOK_CSV=data/binance/BTCUSDT_ws_depth20.csv
+```
+
+The `book-csv` source uses the level-1 bid/ask midpoint as the paper-trading price. This path uses public market data only and does not need Binance API keys, private keys, or exchange account permissions.
+
+## Local paper trading dashboard
+
+Serve the local dashboard from a paper-trading run directory:
+
+```bash
+make paper-dashboard-v142 RUN_DIR=runs/paper_v142_book_csv_smoke BOOK_CSV=data/binance/BTCUSDT_ws_depth20.csv
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8765/
+```
+
+The dashboard shows the latest public market price, top-of-book bid/ask, equity, drawdown, current paper positions, paper order events, decision reasons, recent trades, and rejected signals. Its kill switch writes `kill_switch.json`; a running `paper-trade-v142` loop reads that file and force-closes open paper positions at the next valid market snapshot. This is still local paper trading only and does not submit exchange orders.
+
+The public dashboard is read-only. Control actions are available at `/admin` and require HTTP Basic authentication configured through environment variables:
+
+```bash
+export PAPER_DASHBOARD_ADMIN_USER=admin
+export PAPER_DASHBOARD_ADMIN_PASSWORD='change-me'
+```
+
+For long-running deployment, prefer `PAPER_DASHBOARD_ADMIN_PASSWORD_SHA256` instead of storing the plaintext password. Do not commit real dashboard credentials. Keep them in the deployment environment only.
 
 ## Validation commands
 

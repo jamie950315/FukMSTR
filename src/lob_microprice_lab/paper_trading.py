@@ -14,6 +14,8 @@ from typing import Protocol
 
 import pandas as pd
 
+from .data_schema import parse_timestamp_series
+
 
 @dataclass(frozen=True)
 class MarketSnapshot:
@@ -87,6 +89,7 @@ EVENT_FIELDNAMES = [
     "closed",
     "rejected_signal_count",
     "source",
+    "kill_switch_active",
     "error",
 ]
 
@@ -112,6 +115,7 @@ TRADE_FIELDNAMES = [
     "balance_usdc",
     "equity_usdc",
     "drawdown_pct",
+    "close_reason",
 ]
 
 REJECTED_SIGNAL_FIELDNAMES = [
@@ -126,6 +130,58 @@ REJECTED_SIGNAL_FIELDNAMES = [
     "leg",
     "reason",
     "max_realtime_signal_age_minutes",
+]
+
+POSITION_FIELDNAMES = [
+    "snapshot_timestamp",
+    "signal_id",
+    "symbol",
+    "side",
+    "source",
+    "leg",
+    "direction_probability",
+    "entry_timestamp",
+    "exit_due_timestamp",
+    "entry_price",
+    "mark_price",
+    "leverage",
+    "notional_usdc",
+    "entry_fee_usdc",
+    "unrealized_pnl_usdc",
+    "unrealized_return_pct",
+    "age_minutes",
+    "time_to_exit_minutes",
+]
+
+ORDER_EVENT_FIELDNAMES = [
+    "timestamp",
+    "signal_id",
+    "symbol",
+    "side",
+    "status",
+    "event_type",
+    "source",
+    "leg",
+    "price",
+    "notional_usdc",
+    "leverage",
+    "reason",
+    "dry_run",
+    "order_type",
+]
+
+DECISION_FIELDNAMES = [
+    "timestamp",
+    "signal_id",
+    "symbol",
+    "side",
+    "source",
+    "leg",
+    "decision",
+    "reason",
+    "direction_probability",
+    "snapshot_price",
+    "result",
 ]
 
 
@@ -190,6 +246,41 @@ class CsvPriceSource:
             symbol=self.symbol,
             price=float(row["price"]),
             source="csv",
+        )
+
+
+class BookCsvPriceSource:
+    def __init__(self, path: str | Path, *, symbol: str = "BTCUSDC") -> None:
+        frame = pd.read_csv(path)
+        required = {"timestamp", "bid_px_1", "ask_px_1"}
+        missing = required.difference(frame.columns)
+        if missing:
+            raise ValueError(f"book CSV missing required columns: {sorted(missing)}")
+        frame["timestamp"] = parse_timestamp_series(frame["timestamp"])
+        frame["bid_px_1"] = pd.to_numeric(frame["bid_px_1"], errors="coerce")
+        frame["ask_px_1"] = pd.to_numeric(frame["ask_px_1"], errors="coerce")
+        frame["price"] = (frame["bid_px_1"] + frame["ask_px_1"]) / 2.0
+        valid = (
+            frame["timestamp"].notna()
+            & frame["bid_px_1"].gt(0)
+            & frame["ask_px_1"].gt(0)
+            & frame["bid_px_1"].lt(frame["ask_px_1"])
+            & frame["price"].map(_is_valid_market_price)
+        )
+        self.frame = frame.loc[valid, ["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
+        self.symbol = symbol.upper()
+        self.index = 0
+
+    def next_snapshot(self) -> MarketSnapshot | None:
+        if self.index >= len(self.frame):
+            return None
+        row = self.frame.iloc[self.index]
+        self.index += 1
+        return MarketSnapshot(
+            timestamp=pd.to_datetime(row["timestamp"], utc=True),
+            symbol=self.symbol,
+            price=float(row["price"]),
+            source="book-csv",
         )
 
 
@@ -335,11 +426,30 @@ class PaperBroker:
         admitted, rejected = self._admitted_signals(snapshot, signals)
         self.rejected_signals.extend(rejected)
         opened = [self._open_position(snapshot, signal) for signal in admitted]
+        event = self.snapshot_event(
+            snapshot,
+            opened=len([row for row in opened if row is not None]),
+            closed=len(closed),
+            rejected_signal_count=len(rejected),
+            kill_switch_active=False,
+        )
+        self.events.append(event)
+        return event
+
+    def snapshot_event(
+        self,
+        snapshot: MarketSnapshot,
+        *,
+        opened: int,
+        closed: int,
+        rejected_signal_count: int,
+        kill_switch_active: bool,
+    ) -> dict[str, object]:
         equity = self.equity_usdc(snapshot)
         if equity > self.peak_equity_usdc:
             self.peak_equity_usdc = equity
         drawdown = (equity / self.peak_equity_usdc - 1.0) * 100.0 if self.peak_equity_usdc else 0.0
-        event = {
+        return {
             "timestamp": snapshot.timestamp.isoformat(),
             "event_type": "snapshot",
             "symbol": snapshot.symbol,
@@ -348,13 +458,12 @@ class PaperBroker:
             "equity_usdc": equity,
             "drawdown_pct": drawdown,
             "open_positions": len(self.open_positions),
-            "opened": len([row for row in opened if row is not None]),
-            "closed": len(closed),
-            "rejected_signal_count": len(rejected),
+            "opened": opened,
+            "closed": closed,
+            "rejected_signal_count": rejected_signal_count,
             "source": snapshot.source,
+            "kill_switch_active": kill_switch_active,
         }
-        self.events.append(event)
-        return event
 
     def _admitted_signals(self, snapshot: MarketSnapshot, signals: list[PaperSignal]) -> tuple[list[PaperSignal], list[dict[str, object]]]:
         if self.config.strategy_mode != "realtime_safe":
@@ -464,37 +573,90 @@ class PaperBroker:
             due.append(position)
         self.open_positions = still_open
         for position in due:
-            ret = (snapshot.price - position.entry_price) / position.entry_price * position.side
-            gross_pnl = position.notional_usdc * ret
-            exit_fee = position.notional_usdc * self.config.fee_bps_per_side / 10_000.0
-            net_pnl = gross_pnl - exit_fee
-            self.balance_usdc += net_pnl
-            equity = self.equity_usdc(snapshot)
-            drawdown = self._drawdown_from_equity(equity)
-            row = {
-                "timestamp": snapshot.timestamp.isoformat(),
-                "event_type": "close",
-                "signal_id": position.signal_id,
-                "symbol": position.symbol,
-                "side": position.side,
-                "source": position.source,
-                "leg": position.leg,
-                "direction_probability": position.direction_probability,
-                "entry_timestamp": position.entry_timestamp.isoformat(),
-                "entry_price": position.entry_price,
-                "exit_price": snapshot.price,
-                "leverage": position.leverage,
-                "notional_usdc": position.notional_usdc,
-                "fee_usdc": exit_fee,
-                "gross_pnl_usdc": gross_pnl,
-                "net_pnl_usdc": net_pnl,
-                "balance_usdc": self.balance_usdc,
-                "equity_usdc": equity,
-                "drawdown_pct": drawdown,
-            }
+            row = self._close_position_row(snapshot, position, event_type="close", close_reason="scheduled_exit")
             self.trades.append(row)
             closed.append(row)
         return closed
+
+    def force_close_all_positions(self, snapshot: MarketSnapshot, *, reason: str = "kill_switch") -> list[dict[str, object]]:
+        due = list(self.open_positions)
+        self.open_positions = []
+        closed: list[dict[str, object]] = []
+        for position in due:
+            row = self._close_position_row(snapshot, position, event_type="kill_switch_close", close_reason=reason)
+            self.trades.append(row)
+            closed.append(row)
+        return closed
+
+    def position_rows(self, snapshot: MarketSnapshot) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        snapshot_ts = _utc_timestamp(snapshot.timestamp)
+        for position in self.open_positions:
+            ret = (snapshot.price - position.entry_price) / position.entry_price * position.side
+            age = snapshot_ts - _utc_timestamp(position.entry_timestamp)
+            time_to_exit = _utc_timestamp(position.exit_due_timestamp) - snapshot_ts
+            rows.append(
+                {
+                    "snapshot_timestamp": snapshot.timestamp.isoformat(),
+                    "signal_id": position.signal_id,
+                    "symbol": position.symbol,
+                    "side": position.side,
+                    "source": position.source,
+                    "leg": position.leg,
+                    "direction_probability": position.direction_probability,
+                    "entry_timestamp": position.entry_timestamp.isoformat(),
+                    "exit_due_timestamp": position.exit_due_timestamp.isoformat(),
+                    "entry_price": position.entry_price,
+                    "mark_price": snapshot.price,
+                    "leverage": position.leverage,
+                    "notional_usdc": position.notional_usdc,
+                    "entry_fee_usdc": position.entry_fee_usdc,
+                    "unrealized_pnl_usdc": position.notional_usdc * ret,
+                    "unrealized_return_pct": ret * 100.0,
+                    "age_minutes": age.total_seconds() / 60.0,
+                    "time_to_exit_minutes": time_to_exit.total_seconds() / 60.0,
+                }
+            )
+        return rows
+
+    def _close_position_row(
+        self,
+        snapshot: MarketSnapshot,
+        position: PaperPosition,
+        *,
+        event_type: str,
+        close_reason: str,
+    ) -> dict[str, object]:
+        ret = (snapshot.price - position.entry_price) / position.entry_price * position.side
+        gross_pnl = position.notional_usdc * ret
+        exit_fee = position.notional_usdc * self.config.fee_bps_per_side / 10_000.0
+        net_pnl = gross_pnl - exit_fee
+        self.balance_usdc += net_pnl
+        equity = self.equity_usdc(snapshot)
+        drawdown = self._drawdown_from_equity(equity)
+        return {
+            "timestamp": snapshot.timestamp.isoformat(),
+            "event_type": event_type,
+            "signal_id": position.signal_id,
+            "symbol": position.symbol,
+            "side": position.side,
+            "source": position.source,
+            "leg": position.leg,
+            "direction_probability": position.direction_probability,
+            "entry_timestamp": position.entry_timestamp.isoformat(),
+            "entry_price": position.entry_price,
+            "exit_price": snapshot.price,
+            "price": snapshot.price,
+            "leverage": position.leverage,
+            "notional_usdc": position.notional_usdc,
+            "fee_usdc": exit_fee,
+            "gross_pnl_usdc": gross_pnl,
+            "net_pnl_usdc": net_pnl,
+            "balance_usdc": self.balance_usdc,
+            "equity_usdc": equity,
+            "drawdown_pct": drawdown,
+            "close_reason": close_reason,
+        }
 
 
 def write_dashboard(
@@ -566,13 +728,19 @@ def run_v142_paper_trading(
     balance_path = out / "balance.csv"
     trades_path = out / "trades.csv"
     rejected_signals_path = out / "rejected_signals.csv"
+    positions_path = out / "positions.csv"
+    order_events_path = out / "order_events.csv"
+    decisions_path = out / "decisions.csv"
     config_path = out / "paper_config.json"
     config_path.write_text(json.dumps(asdict(config), indent=2), encoding="utf-8")
-    for path in (events_path, balance_path, trades_path, rejected_signals_path):
+    for path in (events_path, balance_path, trades_path, rejected_signals_path, positions_path, order_events_path, decisions_path):
         path.unlink(missing_ok=True)
     _ensure_csv_header(balance_path, EVENT_FIELDNAMES)
     _ensure_csv_header(trades_path, TRADE_FIELDNAMES)
     _ensure_csv_header(rejected_signals_path, REJECTED_SIGNAL_FIELDNAMES)
+    _ensure_csv_header(positions_path, POSITION_FIELDNAMES)
+    _ensure_csv_header(order_events_path, ORDER_EVENT_FIELDNAMES)
+    _ensure_csv_header(decisions_path, DECISION_FIELDNAMES)
 
     count = 0
     with events_path.open("w", encoding="utf-8") as event_sink:
@@ -587,6 +755,7 @@ def run_v142_paper_trading(
                 event_sink.write(json.dumps(event, default=str) + "\n")
                 event_sink.flush()
                 _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
+                _write_positions_snapshot(positions_path, [])
                 dashboard = write_dashboard(
                     out_dir=out,
                     config=config,
@@ -606,6 +775,7 @@ def run_v142_paper_trading(
                 event_sink.write(json.dumps(event, default=str) + "\n")
                 event_sink.flush()
                 _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
+                _write_positions_snapshot(positions_path, broker.position_rows(snapshot))
                 dashboard = write_dashboard(
                     out_dir=out,
                     config=config,
@@ -620,7 +790,42 @@ def run_v142_paper_trading(
             signals = signal_provider.signals_for_snapshot(snapshot)
             trade_start = len(broker.trades)
             rejected_start = len(broker.rejected_signals)
-            event = broker.on_snapshot(snapshot, signals)
+            kill_switch = _read_kill_switch_state(out)
+            if bool(kill_switch.get("active")):
+                closed = broker.force_close_all_positions(
+                    snapshot,
+                    reason=str(kill_switch.get("reason") or "manual_dashboard"),
+                )
+                event = broker.snapshot_event(
+                    snapshot,
+                    opened=0,
+                    closed=len(closed),
+                    rejected_signal_count=0,
+                    kill_switch_active=True,
+                )
+                broker.events.append(event)
+                new_trades = broker.trades[trade_start:]
+                new_rejections: list[dict[str, object]] = []
+                order_rows = _order_event_rows(new_trades, new_rejections)
+                decision_rows = _decision_rows(
+                    snapshot=snapshot,
+                    signals=signals,
+                    new_trades=new_trades,
+                    new_rejections=new_rejections,
+                    kill_switch_active=True,
+                )
+            else:
+                event = broker.on_snapshot(snapshot, signals)
+                new_trades = broker.trades[trade_start:]
+                new_rejections = broker.rejected_signals[rejected_start:]
+                order_rows = _order_event_rows(new_trades, new_rejections)
+                decision_rows = _decision_rows(
+                    snapshot=snapshot,
+                    signals=signals,
+                    new_trades=new_trades,
+                    new_rejections=new_rejections,
+                    kill_switch_active=False,
+                )
             event_sink.write(json.dumps(event, default=str) + "\n")
             event_sink.flush()
             _append_csv_rows(balance_path, [event], EVENT_FIELDNAMES)
@@ -630,6 +835,9 @@ def run_v142_paper_trading(
                 broker.rejected_signals[rejected_start:],
                 REJECTED_SIGNAL_FIELDNAMES,
             )
+            _append_csv_rows(order_events_path, order_rows, ORDER_EVENT_FIELDNAMES)
+            _append_csv_rows(decisions_path, decision_rows, DECISION_FIELDNAMES)
+            _write_positions_snapshot(positions_path, broker.position_rows(snapshot))
             dashboard = write_dashboard(
                 out_dir=out,
                 config=config,
@@ -667,6 +875,9 @@ def run_v142_paper_trading(
         "balance_csv": str(balance_path),
         "trades_csv": str(trades_path),
         "rejected_signals_csv": str(rejected_signals_path),
+        "positions_csv": str(positions_path),
+        "order_events_csv": str(order_events_path),
+        "decisions_csv": str(decisions_path),
         "config_json": str(config_path),
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
@@ -733,6 +944,171 @@ def _rejected_signal_reason_counts(rejected_signals: list[dict[str, object]]) ->
             continue
         counts[reason] = counts.get(reason, 0) + 1
     return {key: counts[key] for key in sorted(counts)}
+
+
+def _order_event_rows(trades: list[dict[str, object]], rejected_signals: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in trades:
+        event_type = str(row.get("event_type", ""))
+        if event_type == "open":
+            status = "filled"
+            reason = "accepted"
+        elif event_type == "kill_switch_close":
+            status = "closed_by_kill_switch"
+            reason = str(row.get("close_reason") or "kill_switch")
+        elif event_type == "close":
+            status = "closed"
+            reason = str(row.get("close_reason") or "scheduled_exit")
+        else:
+            status = event_type or "recorded"
+            reason = event_type or "recorded"
+        rows.append(
+            {
+                "timestamp": row.get("timestamp", ""),
+                "signal_id": row.get("signal_id", ""),
+                "symbol": row.get("symbol", ""),
+                "side": row.get("side", ""),
+                "status": status,
+                "event_type": event_type,
+                "source": row.get("source", ""),
+                "leg": row.get("leg", ""),
+                "price": row.get("price", row.get("exit_price", row.get("entry_price", ""))),
+                "notional_usdc": row.get("notional_usdc", ""),
+                "leverage": row.get("leverage", ""),
+                "reason": reason,
+                "dry_run": True,
+                "order_type": "paper_market",
+            }
+        )
+    for row in rejected_signals:
+        rows.append(
+            {
+                "timestamp": row.get("timestamp", ""),
+                "signal_id": row.get("signal_id", ""),
+                "symbol": row.get("symbol", ""),
+                "side": row.get("side", ""),
+                "status": "rejected",
+                "event_type": "reject",
+                "source": row.get("source", ""),
+                "leg": row.get("leg", ""),
+                "price": "",
+                "notional_usdc": "",
+                "leverage": "",
+                "reason": row.get("reason", ""),
+                "dry_run": True,
+                "order_type": "paper_market",
+            }
+        )
+    return rows
+
+
+def _decision_rows(
+    *,
+    snapshot: MarketSnapshot,
+    signals: list[PaperSignal],
+    new_trades: list[dict[str, object]],
+    new_rejections: list[dict[str, object]],
+    kill_switch_active: bool,
+) -> list[dict[str, object]]:
+    if kill_switch_active:
+        if not signals:
+            return [
+                {
+                    "timestamp": snapshot.timestamp.isoformat(),
+                    "signal_id": "",
+                    "symbol": snapshot.symbol,
+                    "side": "",
+                    "source": snapshot.source,
+                    "leg": "",
+                    "decision": "kill_switch_active",
+                    "reason": "manual_dashboard",
+                    "direction_probability": "",
+                    "snapshot_price": snapshot.price,
+                    "result": "new_entries_blocked",
+                }
+            ]
+        return [
+            {
+                "timestamp": snapshot.timestamp.isoformat(),
+                "signal_id": signal.signal_id,
+                "symbol": signal.symbol,
+                "side": signal.side,
+                "source": signal.source,
+                "leg": signal.leg,
+                "decision": "kill_switch_active",
+                "reason": "manual_dashboard",
+                "direction_probability": signal.direction_probability,
+                "snapshot_price": snapshot.price,
+                "result": "signal_blocked",
+            }
+            for signal in signals
+        ]
+    rows: list[dict[str, object]] = []
+    opened_ids = {str(row.get("signal_id")) for row in new_trades if row.get("event_type") == "open"}
+    rejected_by_id = {str(row.get("signal_id")): row for row in new_rejections}
+    for signal in signals:
+        if signal.signal_id in opened_ids:
+            decision = "accepted"
+            reason = "passed_realtime_safe_checks"
+            result = "paper_order_filled"
+        elif signal.signal_id in rejected_by_id:
+            decision = "rejected"
+            reason = str(rejected_by_id[signal.signal_id].get("reason", "rejected"))
+            result = "paper_order_not_opened"
+        else:
+            decision = "accepted"
+            reason = "no_available_notional"
+            result = "paper_order_not_opened"
+        rows.append(
+            {
+                "timestamp": snapshot.timestamp.isoformat(),
+                "signal_id": signal.signal_id,
+                "symbol": signal.symbol,
+                "side": signal.side,
+                "source": signal.source,
+                "leg": signal.leg,
+                "decision": decision,
+                "reason": reason,
+                "direction_probability": signal.direction_probability,
+                "snapshot_price": snapshot.price,
+                "result": result,
+            }
+        )
+    if not signals:
+        rows.append(
+            {
+                "timestamp": snapshot.timestamp.isoformat(),
+                "signal_id": "",
+                "symbol": snapshot.symbol,
+                "side": "",
+                "source": snapshot.source,
+                "leg": "",
+                "decision": "no_signal",
+                "reason": "no_ready_signal",
+                "direction_probability": "",
+                "snapshot_price": snapshot.price,
+                "result": "hold",
+            }
+        )
+    return rows
+
+
+def _read_kill_switch_state(out_dir: Path) -> dict[str, object]:
+    path = out_dir / "kill_switch.json"
+    if not path.exists():
+        return {"active": False}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"active": False, "error": "invalid_kill_switch_json"}
+    if not isinstance(payload, dict):
+        return {"active": False, "error": "invalid_kill_switch_payload"}
+    return payload
+
+
+def _write_positions_snapshot(path: Path, rows: list[dict[str, object]]) -> None:
+    _ensure_csv_header(path, POSITION_FIELDNAMES)
+    _append_csv_rows(path, rows, POSITION_FIELDNAMES)
 
 
 def _append_csv_rows(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:

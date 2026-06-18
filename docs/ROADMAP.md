@@ -14,6 +14,7 @@ Implemented:
 - Tardis public L2 sample downloader and converter.
 - Binance public spot REST depth polling.
 - Binance spot local-book WebSocket collector with REST snapshot seeding and sequence-gap checks.
+- Paper trading from captured normalized book CSV using the level-1 midpoint.
 
 Next:
 

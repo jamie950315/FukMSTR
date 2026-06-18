@@ -38,6 +38,7 @@ from .long_horizon import LongWindowGateConfig, parse_model_sets, run_long_horiz
 from .pipeline import run_train
 from .paper_trading import (
     BinancePublicTickerSource,
+    BookCsvPriceSource,
     CsvPriceSource,
     CsvSignalProvider,
     NoSignalProvider,
@@ -45,6 +46,7 @@ from .paper_trading import (
     SyntheticPriceSource,
     run_v142_paper_trading,
 )
+from .paper_dashboard import serve_paper_dashboard
 from .portfolio import combine_fixed_backtest_ledgers
 from .trade_replay import write_trade_replay_page
 from .real_data import (
@@ -911,9 +913,10 @@ def build_parser() -> argparse.ArgumentParser:
     paper = sub.add_parser("paper-trade-v142", help="Run V142 paper trading with live-updating logs and balance dashboard.")
     paper.add_argument("--out", required=True)
     paper.add_argument("--symbol", default="BTCUSDC")
-    paper.add_argument("--source", choices=["synthetic", "csv", "binance-public"], default="binance-public")
+    paper.add_argument("--source", choices=["synthetic", "csv", "book-csv", "binance-public"], default="binance-public")
     paper.add_argument("--market", choices=["spot", "um-futures"], default="spot")
     paper.add_argument("--price-csv", default=None)
+    paper.add_argument("--book-csv", default=None)
     paper.add_argument("--signal-csv", default=None)
     paper.add_argument("--ticks", type=int, default=0, help="Number of price updates to process. Use 0 for continuous mode.")
     paper.add_argument("--interval-sec", type=float, default=60.0)
@@ -927,6 +930,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     paper.add_argument("--clean", action="store_true")
     paper.add_argument("--no-sleep", action="store_true")
+
+    paper_dashboard = sub.add_parser("paper-dashboard", help="Serve a local paper-trading dashboard with market, order, position, and kill-switch views.")
+    paper_dashboard.add_argument("--run-dir", required=True)
+    paper_dashboard.add_argument("--book-csv", default=None)
+    paper_dashboard.add_argument("--symbol", default="BTCUSDC")
+    paper_dashboard.add_argument("--host", default="127.0.0.1")
+    paper_dashboard.add_argument("--port", type=int, default=8765)
 
     real_trade = sub.add_parser("real-trade-btcusdc", help="Run the BTCUSDC real-money launch preflight without placing orders.")
     real_trade.add_argument("--out", required=True)
@@ -1009,6 +1019,10 @@ def main(argv: list[str] | None = None) -> int:
             if not args.price_csv:
                 parser.error("--price-csv is required when --source csv")
             market_source = CsvPriceSource(args.price_csv, symbol=args.symbol)
+        elif args.source == "book-csv":
+            if not args.book_csv:
+                parser.error("--book-csv is required when --source book-csv")
+            market_source = BookCsvPriceSource(args.book_csv, symbol=args.symbol)
         elif args.source == "synthetic":
             market_source = SyntheticPriceSource(symbol=args.symbol, interval_sec=args.interval_sec)
         else:
@@ -1029,6 +1043,16 @@ def main(argv: list[str] | None = None) -> int:
             sleep=not args.no_sleep,
         )
         print(json.dumps(result, indent=2))
+        return 0
+
+    if args.command == "paper-dashboard":
+        serve_paper_dashboard(
+            run_dir=args.run_dir,
+            book_csv=args.book_csv,
+            symbol=args.symbol,
+            host=args.host,
+            port=args.port,
+        )
         return 0
 
     if args.command == "real-trade-btcusdc":
